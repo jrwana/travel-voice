@@ -40,6 +40,28 @@ const narrationProvenanceLabel = (renderedBy: "model" | "fixture" | "template") 
   return "Template fallback";
 };
 
+const scenarioCardLabel = (scenarioId: string) => {
+  if (scenarioId === "happy_exact") return "Move a Lisbon stay";
+  if (scenarioId === "happy_correction") return "Correct dates";
+  if (scenarioId === "payment_penalty") return "Charge dispute";
+  if (scenarioId === "urgent_disruption") return "Stranded tonight";
+  return "Identity verification";
+};
+
+const scenarioGoalLabel = (scenarioId: string) => {
+  if (scenarioId === "happy_exact") return "Change dates and choose an option";
+  if (scenarioId === "happy_correction") return "Correct invalid dates and choose an option";
+  if (scenarioId === "payment_penalty") return "Escalate a disputed cancellation charge";
+  if (scenarioId === "urgent_disruption") return "Escalate an urgent hotel closure";
+  return "Escalate when identity cannot be verified";
+};
+
+const toolActivityLabel = (action: "find" | "quote_date_change" | "confirm_date_change") => {
+  if (action === "find") return "Reservation lookup";
+  if (action === "quote_date_change") return "Replacement options quoted";
+  return "Date change confirmed";
+};
+
 function BrandMark() {
   return (
     <div className="brand-mark" aria-hidden="true">
@@ -95,7 +117,6 @@ export function App() {
       setBootstrap(data);
       setSnapshot(data.snapshot);
       snapshotRef.current = data.snapshot;
-      setMode(data.snapshot.aiAvailable ? "live" : "playback");
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       socket = new WebSocket(`${protocol}//${window.location.host}/ws?sessionId=${encodeURIComponent(data.sessionId)}`);
       socketRef.current = socket;
@@ -182,6 +203,23 @@ export function App() {
         : snapshot?.metrics.narrationBy === "template"
           ? "Template fallback"
           : "—";
+  const callStarted = Boolean(snapshot?.callId);
+  const agentActivity = [
+    ...(snapshot?.toolCalls.map((tool) => ({
+      id: tool.id,
+      label: toolActivityLabel(tool.action),
+      detail: `${tool.status}${tool.durationMs ? ` · ${tool.durationMs} ms` : ""}`,
+      status: tool.status,
+    })) ?? []),
+    ...(snapshot?.handoffSummary
+      ? [{
+          id: "simulated-handoff",
+          label: "Simulated handoff prepared",
+          detail: "No external queue or human contacted",
+          status: "success" as const,
+        }]
+      : []),
+  ];
 
   const selectScenario = (scenario: DemoScenario) => {
     if (callActive) return;
@@ -265,7 +303,7 @@ export function App() {
         </div>
         <div className="topbar-actions">
           <span className={`connection ${socketReady ? "connection--ready" : ""}`}>
-            <i /> {socketReady ? "Operations online" : "Connecting"}
+            <i /> {socketReady ? "Demo ready" : "Connecting"}
           </span>
           <button className="text-button" onClick={exportSession}>Export trace</button>
           <button className="text-button" onClick={resetDemo}>Reset demo</button>
@@ -273,85 +311,106 @@ export function App() {
       </header>
 
       <div className="disclosure" role="note">
-        <strong>Fictional AI demonstration</strong>
-        <span>All travelers, reservations, options, prices, handoffs, and confirmations are synthetic. Never enter real travel or payment details.</span>
+        <strong>Fictional AI demo</strong>
+        <span>All people, reservations, prices, and actions are synthetic. Never enter real travel or payment details.</span>
       </div>
 
       <main>
-        <section className="intro">
+        <section className="intro intro--compact">
           <div>
-            <p className="eyebrow">Inbound itinerary support · Vertical 01</p>
-            <h1>A travel call you can <em>see thinking.</em></h1>
+            <p className="eyebrow">Voice agent portfolio</p>
+            <h1>Run a travel-support call. <em>Inspect every controlled decision.</em></h1>
           </div>
-          <p className="intro-copy">
-            Speak naturally while deterministic policy controls every decision, a model phrases verified facts, and the interface exposes every operational step.
-          </p>
+          <ol className="flow-steps" aria-label="Demo flow">
+            <li>Choose</li>
+            <li>Run</li>
+            <li>Watch transcript and trace</li>
+            <li>See outcome</li>
+          </ol>
         </section>
 
-        <section className="scenario-section" aria-labelledby="scenario-heading">
+        <section className="scenario-section scenario-section--compact" aria-labelledby="scenario-heading">
           <div className="section-heading">
             <div>
               <span className="step-number">01</span>
-              <h2 id="scenario-heading">Choose a call</h2>
+              <h2 id="scenario-heading">Choose a scenario</h2>
             </div>
-            <span>One is ready to go</span>
+            <span>Five synthetic evaluation calls</span>
           </div>
-          <div className="scenario-grid">
+          <div className="scenario-grid scenario-grid--compact">
             {scenarios.map((scenario, index) => (
               <button
-                className={`scenario-card ${scenario.id === selectedScenarioId ? "scenario-card--selected" : ""}`}
+                aria-pressed={scenario.id === selectedScenarioId}
+                className={`scenario-card scenario-card--compact ${scenario.id === selectedScenarioId ? "scenario-card--selected" : ""}`}
                 key={scenario.id}
                 onClick={() => selectScenario(scenario)}
                 disabled={callActive}
               >
                 <span className="scenario-index">0{index + 1}</span>
-                <span className="scenario-accent">{scenario.accent}</span>
-                <strong>{scenario.title}</strong>
-                <small>{scenario.persona} · {scenario.confirmationCode}</small>
-                <i aria-hidden="true">{scenario.id === selectedScenarioId ? "Selected" : "Explore"}</i>
+                <span>
+                  <strong>{scenarioCardLabel(scenario.id)}</strong>
+                  <small>{scenario.accent}</small>
+                </span>
+                <i aria-hidden="true">{scenario.id === selectedScenarioId ? "Selected" : ""}</i>
               </button>
             ))}
           </div>
+
+          <div className="scenario-runbar">
+            <div className="selected-scenario">
+              <span>Selected scenario</span>
+              <strong>{selectedScenario.title}</strong>
+              <p><b>Goal:</b> {scenarioGoalLabel(selectedScenario.id)}</p>
+              <small>{selectedScenario.persona} · {selectedScenario.confirmationCode} · Last name {selectedScenario.lastName}</small>
+            </div>
+            <div className="run-controls">
+              <div className="mode-switch mode-switch--compact" aria-label="Demo mode">
+                <button className={mode === "playback" ? "active" : ""} onClick={() => setMode("playback")} disabled={callActive}>
+                  <span>Scenario playback</span>
+                  <small>Recommended</small>
+                </button>
+                <button
+                  className={mode === "live" ? "active" : ""}
+                  onClick={() => setMode("live")}
+                  disabled={!snapshot.aiAvailable || callActive}
+                  title={snapshot.liveAvailabilityReason}
+                >
+                  <span>Live AI</span>
+                  <small>{snapshot.aiAvailable ? "Microphone" : "API key required"}</small>
+                </button>
+              </div>
+              {!callActive ? (
+                <button className="primary-button run-demo-button" onClick={() => void startDemo()} disabled={!socketReady}>
+                  <span className="button-dot" /> {snapshot.outcome ? "Run another demo" : "Run demo"}
+                </button>
+              ) : (
+                <button className="end-button run-demo-button" onClick={endDemo}>End call</button>
+              )}
+            </div>
+          </div>
         </section>
 
-        <section className="demo-grid">
-          <article className="call-stage">
+        <section className="demo-grid demo-grid--focused">
+          <article className="call-stage call-stage--focused">
             <div className="panel-heading">
               <div>
                 <span className="step-number">02</span>
-                <h2>Conversation</h2>
+                <h2>Call demo</h2>
               </div>
               <span className={`mode-badge mode-badge--${snapshot.mode}`}>{snapshot.mode === "live" ? "Live AI" : "Scenario playback"}</span>
             </div>
 
-            <div className="mode-switch" aria-label="Demo mode">
-              <button
-                className={mode === "live" ? "active" : ""}
-                onClick={() => setMode("live")}
-                disabled={!snapshot.aiAvailable || callActive}
-                title={snapshot.liveAvailabilityReason}
-              >
-                <span>Live AI</span>
-                <small>{snapshot.aiAvailable ? "Microphone + hosted models" : "API key required"}</small>
-              </button>
-              <button className={mode === "playback" ? "active" : ""} onClick={() => setMode("playback")} disabled={callActive}>
-                <span>Scenario Playback</span>
-                <small>Recorded model language · deterministic replay</small>
-              </button>
-            </div>
-
-            <div className={`call-orb call-orb--${snapshot.voiceMode}`}>
-              <div className="orb-ring orb-ring--outer" />
-              <div className="orb-ring orb-ring--inner" />
-              <div className="orb-core">
-                <span>{callActive ? labelForState(snapshot.voiceMode) : "ready"}</span>
-                <strong>{callActive ? labelForState(snapshot.state) : selectedScenario.shortLabel}</strong>
+            <div className={`call-status call-status--${snapshot.voiceMode}`}>
+              <span className="call-status-dot" aria-hidden="true" />
+              <div>
+                <small>{callActive ? labelForState(snapshot.voiceMode) : snapshot.outcome ? "Call complete" : "Ready to run"}</small>
+                <strong>{callActive || snapshot.outcome ? labelForState(snapshot.state) : scenarioCardLabel(selectedScenario.id)}</strong>
               </div>
+              <Waveform active={callActive && ["listening", "speaking", "processing"].includes(snapshot.voiceMode)} />
             </div>
-            <Waveform active={callActive && ["listening", "speaking", "processing"].includes(snapshot.voiceMode)} />
 
-            <div className="scenario-brief">
-              <span>Caller brief</span>
+            <div className="scenario-brief scenario-brief--focused">
+              <span>Caller context</span>
               <strong>{selectedScenario.persona}</strong>
               <p>{selectedScenario.goal}</p>
               <dl>
@@ -360,16 +419,6 @@ export function App() {
               </dl>
             </div>
 
-            <div className="call-actions">
-              {!callActive ? (
-                <button className="primary-button" onClick={() => void startDemo()} disabled={!socketReady}>
-                  <span className="button-dot" /> Start demo
-                </button>
-              ) : (
-                <button className="end-button" onClick={endDemo}>End call</button>
-              )}
-              <span>{mode === "live" ? "Allow microphone access, then speak when the orb says listening." : "Replays the full scripted call and scores the result."}</span>
-            </div>
             {micError && <p className="inline-error">Microphone: {micError}</p>}
 
             {callActive && (
@@ -414,17 +463,19 @@ export function App() {
               </div>
             )}
 
-            <form className="typed-turn" onSubmit={submitTypedTurn}>
-              <label htmlFor="typed-turn">Typed recovery</label>
-              <div><input id="typed-turn" value={typedTurn} onChange={(event) => setTypedTurn(event.target.value)} placeholder="Type a caller turn when audio is unavailable" disabled={!callActive} /><button disabled={!callActive || !typedTurn.trim()}>Send</button></div>
-            </form>
+            {callActive && (
+              <form className="typed-turn" onSubmit={submitTypedTurn}>
+                <label htmlFor="typed-turn">Typed recovery</label>
+                <div><input id="typed-turn" value={typedTurn} onChange={(event) => setTypedTurn(event.target.value)} placeholder="Type a caller turn when audio is unavailable" /><button disabled={!typedTurn.trim()}>Send</button></div>
+              </form>
+            )}
           </article>
 
-          <aside className="operations-panel">
+          <aside className="operations-panel operations-panel--focused">
             <div className="panel-heading">
               <div>
                 <span className="step-number">03</span>
-                <h2>Live operations</h2>
+                <h2>Agent trace</h2>
               </div>
               <span className="state-chip">{labelForState(snapshot.state)}</span>
             </div>
@@ -435,10 +486,18 @@ export function App() {
               </div>
             )}
 
+            {(snapshot.outcome || evalResult) && (
+              <section className={`outcome-card outcome-card--prominent ${snapshot.outcome === "changed" || evalResult?.passed ? "outcome-card--success" : ""}`}>
+                <span><b className="step-number">04</b> Final call outcome</span>
+                <h3>{snapshot.outcome ? labelForState(snapshot.outcome) : "Evaluation complete"}</h3>
+                {evalResult && <p className="outcome-summary">Scenario evaluation {evalResult.passed ? "passed" : "needs review"}.</p>}
+              </section>
+            )}
+
             <section className="ops-section transcript-section">
-              <div className="subheading"><span>Live transcript</span><small>Session only · never stored</small></div>
+              <div className="subheading"><span>Transcript</span><small>Session only · never stored</small></div>
               <div className="transcript" aria-live="polite">
-                {snapshot.transcript.length === 0 && <p className="empty-state">The transcript will appear here as the call unfolds.</p>}
+                {snapshot.transcript.length === 0 && <p className="empty-state">Run the demo to watch the call unfold here.</p>}
                 {snapshot.transcript.map((turn) => (
                   <div className={`turn turn--${turn.role}`} key={turn.id}>
                     <div className="turn-header">
@@ -452,6 +511,7 @@ export function App() {
                           {narrationProvenanceLabel(turn.narration.renderedBy)}
                         </span>
                       )}
+                      <time>{new Date(turn.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
                     </div>
                     <p>{turn.text}</p>
                     {turn.narration?.fidelity.status === "rejected" && (
@@ -459,41 +519,22 @@ export function App() {
                         Candidate rejected by fact-fidelity verification · verified template shown
                       </small>
                     )}
-                    <time>{new Date(turn.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
                   </div>
                 ))}
-                {snapshot.partialTranscript && <div className="turn turn--caller turn--partial"><span>Listening</span><p>{snapshot.partialTranscript}<i /></p></div>}
+                {snapshot.partialTranscript && <div className="turn turn--caller turn--partial"><div className="turn-header"><span className="turn-speaker">Listening</span></div><p>{snapshot.partialTranscript}<i /></p></div>}
                 <div ref={transcriptEndRef} />
               </div>
             </section>
 
-            <section className="ops-section">
-              <div className="subheading"><span>Latency & provenance</span><small>Latest turn · source + timing</small></div>
-              <div className="metrics-grid">
-                {[
-                  ["Interpretation", interpretationMetric],
-                  ["Language", languageMetric],
-                  ["STT final", formatLatency(snapshot.metrics.sttFinalMs)],
-                  ["Tool", formatLatency(snapshot.metrics.toolMs)],
-                  ["TTS", formatLatency(snapshot.metrics.ttsMs)],
-                  ["Turn total", formatLatency(snapshot.metrics.turnTotalMs)],
-                ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
-              </div>
-            </section>
-
-            <section className="ops-section">
-              <div className="subheading"><span>Tool calls</span><small>{snapshot.toolCalls.length} recorded</small></div>
-              <div className="tool-stack">
-                {snapshot.toolCalls.length === 0 && <p className="empty-state">No tools called yet. The server will expose arguments, result, status, and duration.</p>}
-                {snapshot.toolCalls.map((tool, index) => (
-                  <details className="tool-row" key={tool.id} open={index === snapshot.toolCalls.length - 1}>
-                    <summary>
-                      <span className={`tool-status tool-status--${tool.status}`} />
-                      <div><strong>{tool.name}</strong><small>{tool.action}</small></div>
-                      <b>{tool.durationMs ? `${tool.durationMs} ms` : "running"}</b>
-                    </summary>
-                    <div className="tool-payload"><span>Arguments</span><pre>{JSON.stringify(tool.arguments, null, 2)}</pre>{tool.result && <><span>Result</span><pre>{JSON.stringify(tool.result, null, 2)}</pre></>}</div>
-                  </details>
+            <section className="ops-section activity-section">
+              <div className="subheading"><span>Agent activity</span><small>High-level actions</small></div>
+              <div className="activity-list">
+                {agentActivity.length === 0 && <p className="empty-state">No activity yet.</p>}
+                {agentActivity.map((item) => (
+                  <div className="activity-row" key={item.id}>
+                    <span className={`tool-status tool-status--${item.status}`} />
+                    <div><strong>{item.label}</strong><small>{item.detail}</small></div>
+                  </div>
                 ))}
               </div>
             </section>
@@ -508,21 +549,56 @@ export function App() {
               </section>
             )}
 
-            {(snapshot.outcome || evalResult) && (
-              <section className={`outcome-card ${snapshot.outcome === "changed" || evalResult?.passed ? "outcome-card--success" : ""}`}>
-                <span>Final call outcome</span>
-                <h3>{snapshot.outcome ? labelForState(snapshot.outcome) : "Evaluation complete"}</h3>
-                {evalResult && <div className="assertions">{evalResult.assertions.map((assertion) => <p key={assertion} className={assertion.startsWith("PASS") ? "pass" : "fail"}>{assertion}</p>)}</div>}
-              </section>
-            )}
-
-            {snapshot.history.length > 0 && (
-              <section className="ops-section">
-                <div className="subheading"><span>Session history</span><small>Cleared on reset</small></div>
-                <div className="history-list">
-                  {snapshot.history.map((item) => <div key={item.callId}><span className={`history-dot history-dot--${item.outcome}`} /><div><strong>{labelForState(item.outcome)}</strong><small>{item.mode} · {item.toolCount} tools · {(item.durationMs / 1000).toFixed(1)}s</small></div></div>)}
-                </div>
-              </section>
+            {callStarted && (
+              <details className="technical-details">
+                <summary>
+                  <div><strong>Technical details</strong><small>{snapshot.toolCalls.length} tools · {languageMetric}</small></div>
+                  <span>Expand</span>
+                </summary>
+                <section className="ops-section">
+                  <div className="subheading"><span>Latency & provenance</span><small>Latest turn · source + timing</small></div>
+                  <div className="metrics-grid">
+                    {[
+                      ["Interpretation", interpretationMetric],
+                      ["Language", languageMetric],
+                      ["STT final", formatLatency(snapshot.metrics.sttFinalMs)],
+                      ["Tool", formatLatency(snapshot.metrics.toolMs)],
+                      ["TTS", formatLatency(snapshot.metrics.ttsMs)],
+                      ["Turn total", formatLatency(snapshot.metrics.turnTotalMs)],
+                    ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+                  </div>
+                </section>
+                <section className="ops-section">
+                  <div className="subheading"><span>Raw tool calls</span><small>{snapshot.toolCalls.length} recorded</small></div>
+                  <div className="tool-stack">
+                    {snapshot.toolCalls.length === 0 && <p className="empty-state">No reservation tools have been called.</p>}
+                    {snapshot.toolCalls.map((tool) => (
+                      <details className="tool-row" key={tool.id}>
+                        <summary>
+                          <span className={`tool-status tool-status--${tool.status}`} />
+                          <div><strong>{tool.name}</strong><small>{tool.action}</small></div>
+                          <b>{tool.durationMs ? `${tool.durationMs} ms` : "running"}</b>
+                        </summary>
+                        <div className="tool-payload"><span>Arguments</span><pre>{JSON.stringify(tool.arguments, null, 2)}</pre>{tool.result && <><span>Result</span><pre>{JSON.stringify(tool.result, null, 2)}</pre></>}</div>
+                      </details>
+                    ))}
+                  </div>
+                </section>
+                {evalResult && (
+                  <section className="ops-section">
+                    <div className="subheading"><span>Evaluation checks</span><small>{evalResult.passed ? "Passed" : "Review needed"}</small></div>
+                    <div className="assertions">{evalResult.assertions.map((assertion) => <p key={assertion} className={assertion.startsWith("PASS") ? "pass" : "fail"}>{assertion}</p>)}</div>
+                  </section>
+                )}
+                {snapshot.history.length > 0 && (
+                  <section className="ops-section">
+                    <div className="subheading"><span>Session history</span><small>Cleared on reset</small></div>
+                    <div className="history-list">
+                      {snapshot.history.map((item) => <div key={item.callId}><span className={`history-dot history-dot--${item.outcome}`} /><div><strong>{labelForState(item.outcome)}</strong><small>{item.mode} · {item.toolCount} tools · {(item.durationMs / 1000).toFixed(1)}s</small></div></div>)}
+                    </div>
+                  </section>
+                )}
+              </details>
             )}
           </aside>
         </section>
