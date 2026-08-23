@@ -35,6 +35,59 @@ export type EscalationReason = (typeof escalationReasons)[number];
 
 export type DemoMode = "live" | "playback";
 
+export const speechIntents = [
+  "greeting",
+  "scope_repair",
+  "unsupported_end",
+  "workflow_recovery",
+  "ask_identity",
+  "identity_not_found",
+  "reservation_found",
+  "ask_dates",
+  "invalid_dates",
+  "present_options",
+  "ask_option",
+  "ask_confirmation",
+  "selection_declined",
+  "require_explicit_confirmation",
+  "quote_expired",
+  "confirm_changed",
+  "escalate",
+] as const;
+export type SpeechIntent = (typeof speechIntents)[number];
+
+export type RenderedBy = "model" | "fixture" | "template";
+
+export interface FidelityViolation {
+  category:
+    | "unknown_placeholder"
+    | "missing_required_fact"
+    | "raw_date"
+    | "raw_price"
+    | "raw_confirmation"
+    | "raw_option_count"
+    | "raw_room_type"
+    | "unmatched_fact"
+    | "missing_required_phrase"
+    | "malformed_output";
+  detail: string;
+}
+
+export interface SpeechRenderTrace {
+  intent: SpeechIntent;
+  renderedBy: RenderedBy;
+  latencyMs: number;
+  model?: string;
+  fixtureKey?: string;
+  fallbackReason?: "model_unavailable" | "model_error" | "fixture_missing" | "fidelity_violation";
+  fidelity: {
+    status: "verified" | "rejected" | "not_run";
+    violations: FidelityViolation[];
+    candidateText?: string;
+    fallbackVerified: boolean;
+  };
+}
+
 export interface HotelStay {
   hotelName: string;
   city: string;
@@ -71,6 +124,7 @@ export interface TranscriptTurn {
   text: string;
   at: string;
   final: boolean;
+  narration?: SpeechRenderTrace;
 }
 
 export interface ToolCallTrace {
@@ -89,6 +143,9 @@ export interface LatencyMetrics {
   sttFirstPartialMs?: number;
   sttFinalMs?: number;
   llmMs?: number;
+  interpretationBy?: "model" | "deterministic";
+  narrationMs?: number;
+  narrationBy?: RenderedBy;
   toolMs?: number;
   ttsMs?: number;
   turnTotalMs?: number;
