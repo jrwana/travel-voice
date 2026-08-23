@@ -1727,18 +1727,53 @@ button:disabled {
 }
 
 .turn--caller .speaker,
+.turn--caller .turn-speaker,
 .turn--caller > span {
   color: var(--coral);
 }
 
+.turn--agent .turn-speaker,
 .turn--agent > span {
   color: var(--mint);
 }
 
-.turn > span {
+.turn > span,
+.turn-speaker {
   font-size: .57rem;
   font-weight: 750;
   text-transform: uppercase;
+}
+
+.turn-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
+.narration-provenance {
+  padding: 2px 5px;
+  color: var(--gold);
+  background: rgba(233,189,115,.07);
+  border: 1px solid rgba(233,189,115,.18);
+  border-radius: 999px;
+  font-size: .46rem;
+  font-weight: 750;
+  letter-spacing: .025em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.narration-provenance--model {
+  color: var(--mint);
+  background: rgba(163,244,207,.07);
+  border-color: rgba(163,244,207,.18);
+}
+
+.narration-provenance--template {
+  color: var(--coral);
+  background: rgba(239,142,118,.07);
+  border-color: rgba(239,142,118,.2);
 }
 
 .turn > p {
@@ -1751,6 +1786,14 @@ button:disabled {
 .turn--partial p {
   color: var(--dim);
   font-style: italic;
+}
+
+.narration-detail {
+  display: block;
+  margin-top: 4px;
+  color: var(--coral);
+  font-size: .5rem;
+  line-height: 1.35;
 }
 
 .metrics-grid {
@@ -1779,7 +1822,8 @@ button:disabled {
 
 .metrics-grid strong {
   font-family: ui-monospace, monospace;
-  font-size: .73rem;
+  overflow-wrap: anywhere;
+  font-size: .64rem;
   font-weight: 500;
 }
 

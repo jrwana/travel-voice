@@ -31,6 +31,15 @@ const formatMoney = (cents: number) =>
 
 const labelForState = (state: string) => state.replaceAll("_", " ");
 
+const formatLatency = (value: number | undefined) =>
+  typeof value === "number" ? `${value.toLocaleString()} ms` : "—";
+
+const narrationProvenanceLabel = (renderedBy: "model" | "fixture" | "template") => {
+  if (renderedBy === "model") return "Live model · verified";
+  if (renderedBy === "fixture") return "Model fixture · verified";
+  return "Template fallback";
+};
+
 function BrandMark() {
   return (
     <div className="brand-mark" aria-hidden="true">
@@ -159,6 +168,20 @@ export function App() {
     [scenarios, selectedScenarioId],
   );
   const callActive = Boolean(snapshot?.callId && !snapshot.outcome);
+  const interpretationMetric =
+    snapshot?.metrics.interpretationBy === "model"
+      ? `Model · ${formatLatency(snapshot.metrics.llmMs)}`
+      : snapshot?.metrics.interpretationBy === "deterministic"
+        ? "Deterministic parser"
+        : "—";
+  const languageMetric =
+    snapshot?.metrics.narrationBy === "model"
+      ? `Model · ${formatLatency(snapshot.metrics.narrationMs)}`
+      : snapshot?.metrics.narrationBy === "fixture"
+        ? "Verified model fixture"
+        : snapshot?.metrics.narrationBy === "template"
+          ? "Template fallback"
+          : "—";
 
   const selectScenario = (scenario: DemoScenario) => {
     if (callActive) return;
@@ -261,7 +284,7 @@ export function App() {
             <h1>A travel call you can <em>see thinking.</em></h1>
           </div>
           <p className="intro-copy">
-            Speak naturally while the guarded agent identifies a fictional reservation, quotes three mock options, and exposes every operational step.
+            Speak naturally while deterministic policy controls every decision, a model phrases verified facts, and the interface exposes every operational step.
           </p>
         </section>
 
@@ -313,7 +336,7 @@ export function App() {
               </button>
               <button className={mode === "playback" ? "active" : ""} onClick={() => setMode("playback")} disabled={callActive}>
                 <span>Scenario Playback</span>
-                <small>Deterministic and clearly labeled</small>
+                <small>Recorded model language · deterministic replay</small>
               </button>
             </div>
 
@@ -418,8 +441,24 @@ export function App() {
                 {snapshot.transcript.length === 0 && <p className="empty-state">The transcript will appear here as the call unfolds.</p>}
                 {snapshot.transcript.map((turn) => (
                   <div className={`turn turn--${turn.role}`} key={turn.id}>
-                    <span>{turn.role === "caller" ? selectedScenario.persona.split(" ")[0] : turn.role === "agent" ? "AI agent" : "System"}</span>
+                    <div className="turn-header">
+                      <span className="turn-speaker">{turn.role === "caller" ? selectedScenario.persona.split(" ")[0] : turn.role === "agent" ? "AI agent" : "System"}</span>
+                      {turn.narration && (
+                        <span
+                          className={`narration-provenance narration-provenance--${turn.narration.renderedBy}`}
+                          data-testid="narration-provenance"
+                          title={`${turn.narration.intent}${turn.narration.model ? ` · ${turn.narration.model}` : ""}${turn.narration.fallbackReason ? ` · ${turn.narration.fallbackReason}` : ""}`}
+                        >
+                          {narrationProvenanceLabel(turn.narration.renderedBy)}
+                        </span>
+                      )}
+                    </div>
                     <p>{turn.text}</p>
+                    {turn.narration?.fidelity.status === "rejected" && (
+                      <small className="narration-detail">
+                        Candidate rejected by fact-fidelity verification · verified template shown
+                      </small>
+                    )}
                     <time>{new Date(turn.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
                   </div>
                 ))}
@@ -429,16 +468,16 @@ export function App() {
             </section>
 
             <section className="ops-section">
-              <div className="subheading"><span>Latency</span><small>Latest turn · ms</small></div>
+              <div className="subheading"><span>Latency & provenance</span><small>Latest turn · source + timing</small></div>
               <div className="metrics-grid">
                 {[
-                  ["STT partial", snapshot.metrics.sttFirstPartialMs],
-                  ["STT final", snapshot.metrics.sttFinalMs],
-                  ["LLM", snapshot.metrics.llmMs],
-                  ["Tool", snapshot.metrics.toolMs],
-                  ["TTS", snapshot.metrics.ttsMs],
-                  ["Turn total", snapshot.metrics.turnTotalMs],
-                ].map(([label, value]) => <div key={String(label)}><span>{label}</span><strong>{typeof value === "number" ? value.toLocaleString() : "—"}</strong></div>)}
+                  ["Interpretation", interpretationMetric],
+                  ["Language", languageMetric],
+                  ["STT final", formatLatency(snapshot.metrics.sttFinalMs)],
+                  ["Tool", formatLatency(snapshot.metrics.toolMs)],
+                  ["TTS", formatLatency(snapshot.metrics.ttsMs)],
+                  ["Turn total", formatLatency(snapshot.metrics.turnTotalMs)],
+                ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
               </div>
             </section>
 
@@ -491,7 +530,7 @@ export function App() {
 
       <footer>
         <span>Meridian & Pine · fictional portfolio case study</span>
-        <span>Browser → STT → guarded agent → mock tool → TTS</span>
+        <span>Browser → STT → deterministic policy → verified language → mock tool → TTS</span>
       </footer>
     </div>
   );

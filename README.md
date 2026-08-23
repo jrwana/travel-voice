@@ -10,7 +10,9 @@ It cannot connect to a travel provider, charge a card, contact a human, or creat
 - Guarded XState conversation workflow with deterministic policy checks before model interpretation
 - One synthetic `manage_reservation` tool with `find`, `quote_date_change`, and `confirm_date_change` actions
 - Live transcript with partial and final turns
-- Visible tool arguments, results, statuses, latency, call history, and final outcome
+- Model-authored caller language with deterministic fact-fidelity verification and built-in template fallback
+- Per-line language provenance (`model`, `fixture`, or `template`) in the UI and exported trace
+- Visible tool arguments, results, statuses, source-aware latency, call history, and final outcome
 - Deterministic escalation for payment disputes, cancellation penalties, urgent disruption, repeated uncertainty, and tool failure
 - Five one-click scripted evaluation calls that also run as automated regressions
 - Editable identity/date repair and typed-turn fallback when browser audio is unavailable
@@ -20,11 +22,24 @@ It cannot connect to a travel provider, charge a card, contact a human, or creat
 
 Live voice path:
 
-`microphone -> AudioWorklet -> app WebSocket -> OpenAI Realtime transcription -> guarded agent -> mock reservation tool -> OpenAI TTS -> browser audio`
+`microphone -> AudioWorklet -> app WebSocket -> STT -> deterministic policy/workflow -> mock tool -> model renderer -> fact verifier -> TTS -> browser audio`
 
-Scenario Playback uses the same workflow, policy, tool, telemetry, and UI but swaps hosted inference for a deterministic parser and browser speech synthesis. This makes the full demo reviewable without an API key while keeping the mode visibly labeled.
+Scenario Playback uses the same workflow, policy, tool, verifier, telemetry, and UI. It uses the deterministic parser and replays committed drafts recorded from a live model, re-verifying and hydrating them at runtime before browser speech synthesis. This makes authentic model language reviewable without an API key while remaining deterministic and visibly labeled.
 
-The LLM does narrow interpretation only: intent and slot extraction. XState owns conversation progression, deterministic policy owns escalation, and the server is the only component allowed to invoke the mock tool. No model response directly mutates a reservation.
+The model has two narrow roles: live-mode intent/slot interpretation and caller-facing language rendering. XState owns progression, deterministic policy owns escalation, and the server is the only component allowed to invoke the mock tool. The renderer receives a speech intent plus already-computed facts only after code has made the decision. It cannot choose an option, confirm a mutation, escalate, or invoke a tool.
+
+### Fact-fidelity verification
+
+The narrator sends the model placeholder names and descriptions rather than raw dates, prices, room types, option labels, or confirmation numbers. For example, the model writes `{{selected_price}}`; deterministic code verifies the draft and only then hydrates that placeholder with the supplied value.
+
+Before any line is spoken, the verifier rejects:
+
+- Literal or unknown dates, prices, confirmation numbers, room types, option counts, and option labels
+- Unknown placeholders, omitted required facts, or malformed output
+- Missing safety language for fictional changes, payment boundaries, and simulated handoffs
+- Claims that a real human is ready, handling, routed, contacted, or queued
+
+After hydration, extracted factual values are checked again against the supplied bindings. A violation produces the original built-in template, records the rejected candidate and violations in the trace, logs the failure server-side, and displays `Template fallback` in the UI. This fallback is never silent.
 
 ## Stack
 
@@ -34,6 +49,7 @@ The LLM does narrow interpretation only: intent and slot extraction. XState owns
 - Zod boundary and tool validation
 - OpenAI Realtime transcription (`gpt-live-transcribe` by default)
 - OpenAI Responses API structured output (`gpt-5.4-mini` by default)
+- OpenAI-compatible Responses API narration renderer (`gpt-5.4-mini` by default)
 - OpenAI text-to-speech (`gpt-4o-mini-tts`, `coral` by default)
 - Vitest and Playwright
 
@@ -55,6 +71,28 @@ OPENAI_API_KEY=your_key npm run dev
 ```
 
 Optional configuration is documented in [.env.example](./.env.example). The API key is never sent to the browser; the server owns both hosted-model connections.
+
+The live narrator uses the OpenAI-compatible Responses API with `instructions`, `input`, and `output_text`; see the [official Responses create reference](https://developers.openai.com/api/reference/typescript/resources/beta/subresources/responses/methods/create).
+
+### Record playback fixtures with local vLLM
+
+The recorder runs all five scenarios through the live renderer and refuses to write a fixture if any line falls back or fails verification. Its defaults target the local server used for this portfolio:
+
+```bash
+# Defaults: http://127.0.0.1:8000/v1 and openai/gpt-oss-20b
+npm run fixtures:record
+```
+
+Override any OpenAI-compatible endpoint or model when needed:
+
+```bash
+NARRATOR_BASE_URL=http://127.0.0.1:8000/v1 \
+NARRATOR_API_KEY=local-vllm \
+NARRATOR_MODEL=openai/gpt-oss-20b \
+npm run fixtures:record
+```
+
+The committed fixture contains placeholder-bound model drafts, provider/model metadata, and stable scenario/intent/occurrence keys. Playback re-verifies every draft; a missing or stale fixture is surfaced as a template fallback.
 
 For a production-style local run:
 
@@ -125,17 +163,19 @@ npm run eval
 npm run test:e2e
 ```
 
-`npm test` verifies policy, parsing, exact identity matching, three-option quoting, invalid dates, idempotency, all five complete conversations, explicit confirmation before mutation, handoff reasons, spoken disclosure, and final outcome. `npm run eval` prints a compact five-call scorecard. The Playwright smoke test launches the production app and verifies the visible transcript, tool trace, final outcome, and structural assertions.
+`npm test` verifies policy, parsing, exact identity matching, three-option quoting, invalid dates, idempotency, all five complete conversations, explicit confirmation before mutation, handoff reasons, model-fixture provenance, fabricated-fact rejection, spoken disclosure, and final outcome. `npm run eval` prints a compact five-call scorecard. The Playwright smoke test launches the production app and verifies the visible transcript, fixture provenance, tool trace, source-aware metrics, final outcome, and structural assertions.
 
 ## Project map
 
 - [`src/App.tsx`](./src/App.tsx) — browser conversation and operations UI
 - [`server/index.ts`](./server/index.ts) — API, WebSocket boundary, quotas, live transcription wiring
 - [`server/orchestrator.ts`](./server/orchestrator.ts) — guarded agent orchestration and telemetry
+- [`server/services/narrator.ts`](./server/services/narrator.ts) — model language renderer, verifier, templates, and fixture replay
 - [`server/domain/workflow.ts`](./server/domain/workflow.ts) — conversation state machine
 - [`server/domain/reservationTool.ts`](./server/domain/reservationTool.ts) — the only mock reservation tool
 - [`src/shared/scenarios.ts`](./src/shared/scenarios.ts) — synthetic seeds and five evaluation calls
 - [`tests/orchestrator.test.ts`](./tests/orchestrator.test.ts) — full scripted-call regression suite
+- [`scripts/record-narration-fixtures.ts`](./scripts/record-narration-fixtures.ts) — strict five-scenario live-model recorder
 
 ## Deployment note
 

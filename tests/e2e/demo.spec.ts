@@ -12,5 +12,10 @@ test("runs the first scripted call and exposes the operation trace", async ({ pa
   await expect(page.getByText("manage_reservation", { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/mock confirmation/i).last()).toBeVisible();
   await expect(page.getByText(/PASS outcome changed/i)).toBeVisible();
+  const provenance = page.getByTestId("narration-provenance");
+  await expect(provenance).toHaveCount(5);
+  await expect(provenance.first()).toHaveText("Model fixture · verified");
+  await expect(page.getByText("Verified model fixture", { exact: true })).toBeVisible();
+  await expect(page.getByText("Deterministic parser", { exact: true })).toBeVisible();
   await page.screenshot({ path: "test-results/demo-full.png", fullPage: true });
 });
