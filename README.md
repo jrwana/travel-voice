@@ -167,6 +167,8 @@ npm run test:e2e
 
 ## Project map
 
+Deeper design rationale and testing procedures are indexed in [`docs/README.md`](./docs/README.md).
+
 - [`src/App.tsx`](./src/App.tsx) — browser conversation and operations UI
 - [`server/index.ts`](./server/index.ts) — API, WebSocket boundary, quotas, live transcription wiring
 - [`server/orchestrator.ts`](./server/orchestrator.ts) — guarded agent orchestration and telemetry
