@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-08-23T05:27:25.922Z",
+  "provider": "local-vllm",
+  "model": "openai/gpt-oss-20b",
+  "entries": [
+    {
+      "key": "happy_exact:greeting:1",
+      "scenarioId": "happy_exact",
+      "intent": "greeting",
+      "occurrence": 1,
+      "candidateText": "Hello, I’m your AI assistant with {{agency_name}}, a fictional demo that uses synthetic reservations. I can only handle hotel-date changes and I cannot make a real booking or charge. Please give me your confirmation code and last name."
+    },
+    {
+      "key": "happy_exact:reservation_found:1",
+      "scenarioId": "happy_exact",
+      "intent": "reservation_found",
+      "occurrence": 1,
+      "candidateText": "I found a synthetic reservation for {{hotel_name}} in {{city}} from {{current_check_in}} to {{current_check_out}}. Could you please tell me the new check-in and check-out dates?"
+    },
+    {
+      "key": "happy_exact:present_options:1",
+      "scenarioId": "happy_exact",
+      "intent": "present_options",
+      "occurrence": 1,
+      "candidateText": "Here are your {{option_count}} mock options: {{option_1_label}} from {{option_1_check_in}} to {{option_1_check_out}}, {{option_1_room_type}}, {{option_1_price}}. {{option_2_label}} from {{option_2_check_in}} to {{option_2_check_out}}, {{option_2_room_type}}, {{option_2_price}}. {{option_3_label}} from {{option_3_check_in}} to {{option_3_check_out}}, {{option_3_room_type}}, {{option_3_price}}. Which option would you like?"
+    },
+    {
+      "key": "happy_exact:ask_confirmation:1",
+      "scenarioId": "happy_exact",
+      "intent": "ask_confirmation",
+      "occurrence": 1,
+      "candidateText": "To recap: {{selected_check_in}} to {{selected_check_out}}, {{selected_room_type}}, {{selected_price}}. This is a fictional mock change. Please confirm with yes or no. No payment will occur."
+    },
+    {
+      "key": "happy_exact:confirm_changed:1",
+      "scenarioId": "happy_exact",
+      "intent": "confirm_changed",
+      "occurrence": 1,
+      "candidateText": "Your stay at {{hotel_name}} has been changed to {{changed_check_in}} through {{changed_check_out}}. Your mock confirmation is {{mock_confirmation}}. No real booking or payment was made."
+    },
+    {
+      "key": "happy_correction:greeting:1",
+      "scenarioId": "happy_correction",
+      "intent": "greeting",
+      "occurrence": 1,
+      "candidateText": "Hello, I am the AI assistant from {{agency_name}}, a fictional AI demo using synthetic reservations. We only support hotel-date changes and cannot make a real booking or charge. Could you please provide me with the confirmation code and last name?"
+    },
+    {
+      "key": "happy_correction:reservation_found:1",
+      "scenarioId": "happy_correction",
+      "intent": "reservation_found",
+      "occurrence": 1,
+      "candidateText": "I found a synthetic reservation for {{hotel_name}} in {{city}} from {{current_check_in}} to {{current_check_out}}; could you tell me the new check-in and check-out dates?"
+    },
+    {
+      "key": "happy_correction:invalid_dates:1",
+      "scenarioId": "happy_correction",
+      "intent": "invalid_dates",
+      "occurrence": 1,
+      "candidateText": "Check-out must be after check-in. Please provide both dates again."
+    },
+    {
+      "key": "happy_correction:present_options:1",
+      "scenarioId": "happy_correction",
+      "intent": "present_options",
+      "occurrence": 1,
+      "candidateText": "We have {{option_count}} mock options for you: {{option_1_label}} from {{option_1_check_in}} to {{option_1_check_out}} in a {{option_1_room_type}} room, {{option_1_price}}; {{option_2_label}} from {{option_2_check_in}} to {{option_2_check_out}} in a {{option_2_room_type}} room, {{option_2_price}}; {{option_3_label}} from {{option_3_check_in}} to {{option_3_check_out}} in a {{option_3_room_type}} room, {{option_3_price}}. Which option would you like?"
+    },
+    {
+      "key": "happy_correction:ask_confirmation:1",
+      "scenarioId": "happy_correction",
+      "intent": "ask_confirmation",
+      "occurrence": 1,
+      "candidateText": "To recap: {{selected_check_in}} to {{selected_check_out}}, {{selected_room_type}}, {{selected_price}}. This is a fictional mock change. Please confirm with yes or no. No payment will occur."
+    },
+    {
+      "key": "happy_correction:confirm_changed:1",
+      "scenarioId": "happy_correction",
+      "intent": "confirm_changed",
+      "occurrence": 1,
+      "candidateText": "Your stay at {{hotel_name}} has been updated from {{changed_check_in}} to {{changed_check_out}}. Your mock confirmation is {{mock_confirmation}}. No real booking or payment was made."
+    },
+    {
+      "key": "payment_penalty:greeting:1",
+      "scenarioId": "payment_penalty",
+      "intent": "greeting",
+      "occurrence": 1,
+      "candidateText": "Hello, I’m the AI assistant from {{agency_name}}. I’m here to help with synthetic reservations, only for hotel-date changes, and I cannot make a real booking or charge. Please give me your confirmation code and last name."
+    },
+    {
+      "key": "payment_penalty:escalate:1",
+      "scenarioId": "payment_penalty",
+      "intent": "escalate",
+      "occurrence": 1,
+      "candidateText": "This request involves {{escalation_reasons}} and needs a human travel specialist. A summary was prepared for a simulated handoff. No reservation or payment was changed."
+    },
+    {
+      "key": "urgent_disruption:greeting:1",
+      "scenarioId": "urgent_disruption",
+      "intent": "greeting",
+      "occurrence": 1,
+      "candidateText": "Hello, I'm the AI assistant from {{agency_name}}, a synthetic reservations demo. I can help with hotel-date changes, but I cannot make a real booking or charge. Could you please give me the confirmation code and your last name?"
+    },
+    {
+      "key": "urgent_disruption:escalate:1",
+      "scenarioId": "urgent_disruption",
+      "intent": "escalate",
+      "occurrence": 1,
+      "candidateText": "This request involves {{escalation_reasons}} and needs a human travel specialist. A summary was prepared for a simulated handoff. No reservation or payment was changed."
+    },
+    {
+      "key": "identity_uncertainty:greeting:1",
+      "scenarioId": "identity_uncertainty",
+      "intent": "greeting",
+      "occurrence": 1,
+      "candidateText": "Hello, I am the AI assistant from {{agency_name}}, a fictional AI demo using synthetic reservations. I only support hotel-date changes and cannot make a real booking or charge, so please provide your confirmation code and last name."
+    },
+    {
+      "key": "identity_uncertainty:identity_not_found:1",
+      "scenarioId": "identity_uncertainty",
+      "intent": "identity_not_found",
+      "occurrence": 1,
+      "candidateText": "The supplied details did not match a synthetic reservation. Could you give me the confirmation code and last name one more time?"
+    },
+    {
+      "key": "identity_uncertainty:escalate:1",
+      "scenarioId": "identity_uncertainty",
+      "intent": "escalate",
+      "occurrence": 1,
+      "candidateText": "This request involves {{escalation_reasons}} and needs a human travel specialist. A summary was prepared for a simulated handoff. No reservation or payment was changed."
+    }
+  ]
+}

@@ -140,7 +140,8 @@ const pricePattern =
 const confirmationPattern = /\b(?:MPT|MPC)[ -]?[A-Z0-9]{4,}\b/gi;
 const optionCountPattern = /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:mock\s+)?options?\b/gi;
 const optionLabelPattern = /\boption\s+\d+\b/gi;
-const roomTypePattern = /\b(?:[a-z][a-z'-]*\s+){0,3}(?:king|queen|suite|twin|double|single|room)\b/gi;
+const optionEnumeratorPattern = /(?<![\d.$])\b\d+\)/g;
+const roomTypePattern = /\b(?:[a-z][a-z'-]*\s+){0,3}(?:king|queen|suite|twin|double|single)\b/gi;
 const placeholderPattern = /{{([a-z0-9_]+)}}/g;
 
 export function narrationFixtureKey(scenarioId: string, intent: SpeechIntent, occurrence: number): string {
@@ -224,8 +225,96 @@ function optionBindings(option: ChangeOption, index: number): Record<string, Bin
     [prefix + "check_in"]: binding(formatDate(option.checkIn), "check-in date for option " + number),
     [prefix + "check_out"]: binding(formatDate(option.checkOut), "check-out date for option " + number),
     [prefix + "room_type"]: binding(option.roomType, "room type for option " + number),
-    [prefix + "price"]: binding(formatDelta(option.priceDeltaCents), "price difference for option " + number),
+    [prefix + "price"]: binding(
+      formatDelta(option.priceDeltaCents),
+      "complete price-difference phrase for option " + number + "; place after a comma with no added preposition",
+    ),
   };
+}
+
+function speechGoal(intent: SpeechIntent): string {
+  switch (intent) {
+    case "greeting":
+      return "Start with Hello. Introduce {{agency_name}} as a fictional AI demo using synthetic reservations, state that it only supports hotel-date changes and cannot make a real booking or charge, then ask for the confirmation code and last name.";
+    case "scope_repair":
+      return "State that this demo supports only {{supported_scope}}, then guide the caller back to providing their confirmation code and last name or continuing that date change.";
+    case "unsupported_end":
+      return "Say the request is outside this demo's scope and end the call safely without claiming that any external action occurred.";
+    case "workflow_recovery":
+      return "Ask the caller to wait briefly while the deterministic demo workflow returns to a safe state.";
+    case "ask_identity":
+      return "Ask for both the reservation confirmation code and the last name.";
+    case "identity_not_found":
+      return "Say the supplied details did not match a synthetic reservation and ask for the confirmation code and last name one more time.";
+    case "reservation_found":
+      return "Say that you found a synthetic reservation for {{hotel_name}} in {{city}} from {{current_check_in}} to {{current_check_out}}, then ask for the new check-in and check-out dates. Never call the reservation confirmed.";
+    case "ask_dates":
+      return "Ask for both the new check-in and check-out dates.";
+    case "invalid_dates":
+      return "Explain only that check-out must be after check-in and ask for both dates again; do not make an availability claim.";
+    case "present_options":
+      return "Present all {{option_count}} mock options in order using every supplied option placeholder, then ask which option the caller wants. Option-label placeholders already contain numbering. Each option-price placeholder is a complete modifier: put a comma immediately before it and do not add a preposition. Do not add numbered list markers.";
+    case "ask_option":
+      return "Ask the caller to choose the first, second, or third option.";
+    case "ask_confirmation":
+      return "Use this exact recap frame so the complete price phrase stays grammatical: 'To recap: {{selected_check_in}} to {{selected_check_out}}, {{selected_room_type}}, {{selected_price}}.' Then say exactly 'This is a fictional mock change. Please confirm with yes or no. No payment will occur.'";
+    case "selection_declined":
+      return "State that no change was made and ask the caller to choose among the three options again.";
+    case "require_explicit_confirmation":
+      return "State that the mock change requires an explicit yes, while allowing the caller to say no.";
+    case "quote_expired":
+      return "State that the mock quote expired and that the deterministic demo will refresh the options before asking for confirmation again.";
+    case "confirm_changed":
+      return "State that the fictional stay at {{hotel_name}} changed to {{changed_check_in}} through {{changed_check_out}}, provide mock confirmation {{mock_confirmation}}, and make clear that no real booking or payment occurred.";
+    case "escalate":
+      return "Use status-only language. Say exactly that 'This request involves {{escalation_reasons}} and needs a human travel specialist.' Then say that 'A summary was prepared for a simulated handoff.' Finally state that no reservation or payment changed. You may add warmth, but never claim that any person is ready, available, handling the request, or will perform an action.";
+  }
+}
+
+function forbiddenClaims(intent: SpeechIntent, text: string): FidelityViolation[] {
+  const rules: Array<{ pattern: RegExp; detail: string }> = [];
+  if (intent === "greeting") {
+    rules.push(
+      {
+        pattern: /\b(?:good\s+)?(?:morning|afternoon|evening)\b/i,
+        detail: "Greeting invented a time of day.",
+      },
+      {
+        pattern: /\ball (?:of )?(?:your )?synthetic reservations\b/i,
+        detail: "Greeting overclaimed access to every synthetic reservation.",
+      },
+      {
+        pattern: /\bgood day\b/i,
+        detail: "Greeting used a time-dependent salutation.",
+      },
+    );
+  }
+  if (intent === "invalid_dates") {
+    rules.push({
+      pattern: /\b(?:not available|unavailable|sold out)\b/i,
+      detail: "Invalid-date response invented an availability result.",
+    });
+  }
+  if (intent === "reservation_found") {
+    rules.push({
+      pattern: /\b(?:confirm(?:ed|ing)?|changed|cancelled|canceled)\b/i,
+      detail: "Reservation lookup response implied a confirmation or mutation.",
+    });
+  }
+  if (intent === "escalate") {
+    rules.push({
+      pattern: /\b(?:arrang(?:e|ed|ing)|assist(?:ed|ing)?|connect(?:ing|ed)?|handl(?:e|ed|ing)|transfer(?:ring|red)?|forward(?:ing|ed)?|pass(?:ing|ed)?|send(?:ing|sent)?|rout(?:e|ing|ed)|hand(?:ing|ed)|plac(?:e|ed|ing)|enter(?:ing|ed)?|add(?:ed|ing)|ready\s+to|available\s+to|will)\b/i,
+      detail: "Escalation response claimed that a real handoff or queue action occurred.",
+    });
+    rules.push({
+      pattern: /\bmy friend\b/i,
+      detail: "Escalation response used an inappropriate term of endearment.",
+    });
+  }
+
+  return rules
+    .filter((rule) => rule.pattern.test(text))
+    .map((rule) => ({ category: "malformed_output", detail: rule.detail }));
 }
 
 function bindingSet<I extends SpeechIntent>(intent: I, facts: SpeechFactsByIntent[I]): BindingSet {
@@ -235,7 +324,15 @@ function bindingSet<I extends SpeechIntent>(intent: I, facts: SpeechFactsByInten
       return {
         bindings: { agency_name: binding(value.agencyName, "fictional travel agency name") },
         requiredKeys: ["agency_name"],
-        requiredPhrases: ["AI assistant", "synthetic reservations"],
+        requiredPhrases: [
+          "Hello",
+          "AI assistant",
+          "synthetic reservations",
+          "cannot make a real booking or charge",
+          "hotel-date changes",
+          "confirmation code",
+          "last name",
+        ],
       };
     }
     case "scope_repair": {
@@ -256,7 +353,7 @@ function bindingSet<I extends SpeechIntent>(intent: I, facts: SpeechFactsByInten
           current_check_out: binding(formatDate(value.checkOut), "current check-out date"),
         },
         requiredKeys: ["hotel_name", "city", "current_check_in", "current_check_out"],
-        requiredPhrases: [],
+        requiredPhrases: ["found a synthetic reservation", "new check-in and check-out dates"],
       };
     }
     case "present_options": {
@@ -265,7 +362,17 @@ function bindingSet<I extends SpeechIntent>(intent: I, facts: SpeechFactsByInten
         { option_count: binding(numberWord(value.options.length), "number of available mock options") },
         ...value.options.map(optionBindings),
       ) as Record<string, Binding>;
-      return { bindings, requiredKeys: Object.keys(bindings), requiredPhrases: ["mock options"] };
+      return {
+        bindings,
+        requiredKeys: Object.keys(bindings),
+        requiredPhrases: [
+          "mock options",
+          "Which option",
+          ", {{option_1_price}}",
+          ", {{option_2_price}}",
+          ", {{option_3_price}}",
+        ],
+      };
     }
     case "ask_confirmation": {
       const value = facts as SpeechFactsByIntent["ask_confirmation"];
@@ -274,10 +381,18 @@ function bindingSet<I extends SpeechIntent>(intent: I, facts: SpeechFactsByInten
           selected_check_in: binding(formatDate(value.option.checkIn), "selected check-in date"),
           selected_check_out: binding(formatDate(value.option.checkOut), "selected check-out date"),
           selected_room_type: binding(value.option.roomType, "selected room type"),
-          selected_price: binding(formatDelta(value.option.priceDeltaCents), "selected price difference"),
+          selected_price: binding(
+            formatDelta(value.option.priceDeltaCents),
+            "complete selected price-difference phrase; place after a comma with no added preposition",
+          ),
         },
         requiredKeys: ["selected_check_in", "selected_check_out", "selected_room_type", "selected_price"],
-        requiredPhrases: ["fictional", "confirm"],
+        requiredPhrases: [
+          "To recap: {{selected_check_in}} to {{selected_check_out}}, {{selected_room_type}}, {{selected_price}}.",
+          "This is a fictional mock change.",
+          "Please confirm with yes or no.",
+          "No payment will occur.",
+        ],
       };
     }
     case "confirm_changed": {
@@ -290,7 +405,7 @@ function bindingSet<I extends SpeechIntent>(intent: I, facts: SpeechFactsByInten
           mock_confirmation: binding(value.mockConfirmationNumber, "mock confirmation number"),
         },
         requiredKeys: ["hotel_name", "changed_check_in", "changed_check_out", "mock_confirmation"],
-        requiredPhrases: ["mock confirmation", "No real booking or payment"],
+        requiredPhrases: ["Your mock confirmation is", "No real booking or payment was made"],
       };
     }
     case "escalate": {
@@ -298,12 +413,39 @@ function bindingSet<I extends SpeechIntent>(intent: I, facts: SpeechFactsByInten
       return {
         bindings: {
           escalation_reasons: binding(describeReasons(value.reasons), "deterministic escalation reasons"),
-          handoff_queue: binding(value.queueLabel, "simulated handoff queue"),
         },
-        requiredKeys: [],
-        requiredPhrases: ["human travel specialist", "No reservation or payment was changed"],
+        requiredKeys: ["escalation_reasons"],
+        requiredPhrases: [
+          "This request involves {{escalation_reasons}} and needs a human travel specialist",
+          "A summary was prepared for a simulated handoff",
+          "No reservation or payment was changed",
+        ],
       };
     }
+    case "ask_identity":
+      return { bindings: {}, requiredKeys: [], requiredPhrases: ["confirmation code", "last name"] };
+    case "identity_not_found":
+      return {
+        bindings: {},
+        requiredKeys: [],
+        requiredPhrases: ["synthetic reservation", "confirmation code", "last name", "one more time"],
+      };
+    case "ask_dates":
+      return { bindings: {}, requiredKeys: [], requiredPhrases: ["check-in", "check-out"] };
+    case "invalid_dates":
+      return {
+        bindings: {},
+        requiredKeys: [],
+        requiredPhrases: ["Check-out must be after check-in"],
+      };
+    case "ask_option":
+      return { bindings: {}, requiredKeys: [], requiredPhrases: ["first, second, or third option"] };
+    case "selection_declined":
+      return { bindings: {}, requiredKeys: [], requiredPhrases: ["No change was made"] };
+    case "require_explicit_confirmation":
+      return { bindings: {}, requiredKeys: [], requiredPhrases: ["explicit yes"] };
+    case "quote_expired":
+      return { bindings: {}, requiredKeys: [], requiredPhrases: ["expired", "refresh"] };
     default:
       return { bindings: {}, requiredKeys: [], requiredPhrases: [] };
   }
@@ -379,6 +521,7 @@ function rawCandidateViolations(text: string): FidelityViolation[] {
     ["raw_confirmation", confirmationPattern, "confirmation code"],
     ["raw_option_count", optionCountPattern, "option count"],
     ["raw_option_count", optionLabelPattern, "numeric option label"],
+    ["raw_option_count", optionEnumeratorPattern, "numeric option enumerator"],
     ["raw_room_type", roomTypePattern, "room type"],
   ];
   return checks.flatMap(([category, pattern, label]) =>
@@ -403,6 +546,10 @@ function finalFactMatches(text: string): Array<{ category: FidelityViolation["ca
       value,
     })),
     ...collectMatches(text, optionLabelPattern).map((value) => ({
+      category: "raw_option_count" as const,
+      value,
+    })),
+    ...collectMatches(text, optionEnumeratorPattern).map((value) => ({
       category: "raw_option_count" as const,
       value,
     })),
@@ -437,10 +584,22 @@ export function verifyFactFidelity<I extends SpeechIntent>(
   const set = bindingSet(intent, facts);
   const violations: FidelityViolation[] = [];
   const trimmed = candidateText.trim();
-  if (!trimmed || trimmed.length > 1_200 || trimmed.includes(String.fromCharCode(96).repeat(3)) || /^\s*[{\[]/.test(trimmed)) {
+  if (
+    !trimmed ||
+    trimmed.length > 1_200 ||
+    trimmed.includes(String.fromCharCode(96).repeat(3)) ||
+    /^\s*[{\[]/.test(trimmed) ||
+    /,\s*,/.test(trimmed)
+  ) {
     violations.push({ category: "malformed_output", detail: "Narration must be plain caller-facing text." });
   }
   const keys = [...trimmed.matchAll(placeholderPattern)].map((match) => match[1]);
+  for (const match of trimmed.matchAll(/<([a-z_]+)>/gi)) {
+    violations.push({
+      category: "unknown_placeholder",
+      detail: "Unknown angle-bracket placeholder: " + match[0],
+    });
+  }
   for (const key of keys) {
     if (!set.bindings[key]) {
       violations.push({ category: "unknown_placeholder", detail: "Unknown fact placeholder: {{" + key + "}}" });
@@ -452,11 +611,13 @@ export function verifyFactFidelity<I extends SpeechIntent>(
     }
   }
   for (const phrase of set.requiredPhrases) {
-    if (!trimmed.includes(phrase)) {
+    if (!trimmed.toLocaleLowerCase("en-US").includes(phrase.toLocaleLowerCase("en-US"))) {
       violations.push({ category: "missing_required_phrase", detail: "Required safety phrase was omitted: " + phrase });
     }
   }
   violations.push(...rawCandidateViolations(trimmed));
+  const forbidden = forbiddenClaims(intent, trimmed);
+  violations.push(...forbidden);
   if (violations.length) return { passed: false, violations };
 
   const hydrated = trimmed.replace(placeholderPattern, (_match, key: string) => set.bindings[key]?.value ?? "");
@@ -482,10 +643,17 @@ function modelPrompt<I extends SpeechIntent>(intent: I, facts: SpeechFactsByInte
     : "";
   return [
     "Write the caller-facing language for the speech act " + intent + ".",
-    "Use a warm, concise premium travel-concierge voice. Return only the spoken line, with no JSON, labels, markdown, or quotation marks.",
+    "Communication goal: " + speechGoal(intent),
+    "Use a warm, concise travel-support voice. Return only the spoken line, with no JSON, labels, markdown, or quotation marks.",
     "Decisions are already final. Do not choose an option, confirm a change, decide an escalation, call a tool, add advice, or add any fact.",
     "Use the placeholders below whenever mentioning a date, price, confirmation, option label/count, room type, hotel, city, queue, or escalation reason.",
     "Never spell out or invent the value behind a placeholder. Preserve every placeholder exactly.",
+    "Never write a literal date, price, confirmation code, room type, option count, option label, or numbered-list marker; use only the supplied placeholders for those facts.",
+    "Your response will be rejected unless every required placeholder and exact phrase appears verbatim.",
+    "Do not imply that a real booking, payment, transfer, queue placement, availability search, or external action occurred unless the communication goal explicitly says so.",
+    "Do not use a time-of-day greeting.",
+    "Do not use terms of endearment or describe yourself as premium.",
+    intent === "greeting" ? "Begin with Hello." : "Do not greet the caller again.",
     requiredFacts,
     requiredPhrases,
     slots || "- No dynamic fact placeholders are available for this speech act.",
@@ -566,7 +734,7 @@ export class NarratorService {
             renderedBy,
             latencyMs: Math.round(performance.now() - startedAt),
             model: candidateModel,
-            fixtureKey: renderedBy === "fixture" ? fixtureKey : undefined,
+            fixtureKey,
             fidelity: {
               status: "verified",
               violations: [],
@@ -597,7 +765,7 @@ export class NarratorService {
       instructions:
         "You are the language renderer inside a guarded fictional travel-support demo. Phrase only the supplied placeholder-bound facts.",
       input: prompt,
-      max_output_tokens: 400,
+      max_output_tokens: Number(process.env.NARRATOR_MAX_OUTPUT_TOKENS ?? 1600),
     });
     const text = response.output_text.trim();
     if (!text) throw new Error("Narration model returned no output text (" + response.status + ")");

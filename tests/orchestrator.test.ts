@@ -37,6 +37,15 @@ describe("five scripted evaluation calls", () => {
       expect(session.history).toHaveLength(1);
       expect(session.history[0].outcome).toBe(scenario.expectedOutcome);
       expect(session.toolCalls.every((call) => call.durationMs !== undefined)).toBe(true);
+      const agentTurns = session.transcript.filter((turn) => turn.role === "agent");
+      expect(agentTurns.length).toBeGreaterThan(0);
+      expect(agentTurns.every((turn) => turn.narration?.renderedBy === "fixture")).toBe(true);
+      expect(agentTurns.every((turn) => turn.narration?.fidelity.status === "verified")).toBe(true);
+      expect(
+        session.snapshot().transcript.filter((turn) => turn.role === "agent").every(
+          (turn) => turn.narration?.renderedBy === "fixture",
+        ),
+      ).toBe(true);
 
       if (scenario.expectedOutcome === "changed") {
         expect(session.options).toHaveLength(3);
@@ -74,9 +83,9 @@ describe("escalation ordering", () => {
           handoffReady: Boolean(session.handoffSummary),
         });
         if (intent === "greeting") {
-          return "Welcome to {{agency_name}}. I'm an AI assistant using synthetic reservations. Please share your confirmation code and last name.";
+          return "Hello, I'm the AI assistant for {{agency_name}}, a fictional AI demo using synthetic reservations. I only support hotel-date changes and cannot make a real booking or charge. Please share your confirmation code and last name.";
         }
-        return "A human travel specialist is required, and I have prepared the handoff. No reservation or payment was changed.";
+        return "This request involves {{escalation_reasons}} and needs a human travel specialist. A summary was prepared for a simulated handoff. No reservation or payment was changed.";
       },
     });
     session = new CallSession("test_escalation_order", true);
@@ -99,5 +108,6 @@ describe("escalation ordering", () => {
     expect(interpret).not.toHaveBeenCalled();
     expect(session.toolCalls).toHaveLength(0);
     expect(session.outcome).toBe("escalated");
+    expect(session.transcript.at(-1)?.narration?.renderedBy).toBe("model");
   });
 });

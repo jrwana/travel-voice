@@ -27,7 +27,7 @@ describe("fact-fidelity verifier", () => {
       logger: silentServiceLogger,
       model: "test-model",
       generator: async () =>
-        "At {{hotel_name}} in {{city}}, your stay is {{current_check_in}} to {{current_check_out}}. What new dates work for you?",
+        "I found a synthetic reservation for {{hotel_name}} in {{city}} from {{current_check_in}} to {{current_check_out}}. What are your new check-in and check-out dates?",
     });
     const result = await narrator.render(
       "reservation_found",
@@ -122,6 +122,34 @@ describe("fact-fidelity verifier", () => {
     expect(categories).toContain("unknown_placeholder");
     expect(categories).toContain("missing_required_fact");
   });
+
+  it("rejects narration that claims a human is handling an escalation", () => {
+    const result = verifyFactFidelity(
+      "escalate",
+      { reasons: ["uncertainty"], queueLabel: "priority support · simulated queue" },
+      "This request involves {{escalation_reasons}} and needs a human travel specialist. A human travel specialist is handling it. A summary was prepared for a simulated handoff. No reservation or payment was changed.",
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toContainEqual(
+      expect.objectContaining({
+        category: "malformed_output",
+        detail: expect.stringContaining("real handoff or queue action"),
+      }),
+    );
+  });
+
+  it("rejects raw numeric list markers even when approved option labels are present", () => {
+    const options = [1, 2, 3].map((index) => ({ ...option, optionId: "opt_" + index }));
+    const result = verifyFactFidelity(
+      "present_options",
+      { options },
+      "Here are {{option_count}} mock options: 1) {{option_1_label}}, {{option_1_check_in}} to {{option_1_check_out}}, {{option_1_room_type}}, {{option_1_price}}. {{option_2_label}}, {{option_2_check_in}} to {{option_2_check_out}}, {{option_2_room_type}}, {{option_2_price}}. {{option_3_label}}, {{option_3_check_in}} to {{option_3_check_out}}, {{option_3_room_type}}, {{option_3_price}}. Which option would you like?",
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toContainEqual(expect.objectContaining({ category: "raw_option_count" }));
+  });
 });
 
 describe("fixture replay", () => {
@@ -132,7 +160,7 @@ describe("fixture replay", () => {
       intent: "greeting" as const,
       occurrence: 1,
       candidateText:
-        "Welcome to {{agency_name}}. I'm your AI assistant for this fictional demo using synthetic reservations. Please share your confirmation code and last name.",
+        "Hello, I'm the AI assistant for {{agency_name}}, a fictional AI demo using synthetic reservations. I only support hotel-date changes and cannot make a real booking or charge. Please share your confirmation code and last name.",
     };
     const narrator = new NarratorService({
       logger: silentServiceLogger,
@@ -150,5 +178,15 @@ describe("fixture replay", () => {
     expect(result.renderedBy).toBe("fixture");
     expect(result.text).toContain("Meridian and Pine Travel");
     expect(result.trace.model).toBe("openai/gpt-oss-20b");
+  });
+
+  it("loads 18 unique, local-model-authored committed fixture lines", () => {
+    const store = NarrationFixtureStore.load();
+    const entries = store.all();
+
+    expect(store.metadata?.provider).toBe("local-vllm");
+    expect(store.metadata?.model).toBe("openai/gpt-oss-20b");
+    expect(entries).toHaveLength(18);
+    expect(new Set(entries.map((entry) => entry.key)).size).toBe(entries.length);
   });
 });

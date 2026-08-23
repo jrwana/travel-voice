@@ -12,5 +12,6 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/build ./build
+COPY --from=build /app/tests/fixtures ./tests/fixtures
 EXPOSE 3001
 CMD ["npm", "start"]
