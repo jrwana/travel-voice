@@ -4,6 +4,7 @@ import type {
   EscalationReason,
   PublicReservation,
   ServerEvent,
+  SpeechIntent,
   ToolCallTrace,
 } from "../src/shared/contracts.js";
 import { scenarioById } from "../src/shared/scenarios.js";
@@ -15,6 +16,10 @@ import {
 import { workflowState } from "./domain/workflow.js";
 import { CallSession } from "./session.js";
 import { AgentService } from "./services/agent.js";
+import {
+  NarratorService,
+  type SpeechFactsByIntent,
+} from "./services/narrator.js";
 
 export type EmitEvent = (event: ServerEvent) => void;
 
@@ -44,7 +49,10 @@ function publicResult(value: unknown): Record<string, unknown> {
 }
 
 export class Orchestrator {
-  constructor(private readonly agent: AgentService) {}
+  constructor(
+    private readonly agent: AgentService,
+    private readonly narrator = new NarratorService(),
+  ) {}
 
   async startCall(session: CallSession, scenarioId: string, requestedMode: "live" | "playback", emit: EmitEvent) {
     const mode = requestedMode === "live" && session.aiAvailable ? "live" : "playback";
@@ -57,11 +65,7 @@ export class Orchestrator {
         message: "Live AI is unavailable, so this call is running in clearly labeled Scenario Playback mode.",
       });
     }
-    await this.speak(
-      session,
-      "Hello, you've reached Meridian and Pine Travel. I'm an AI assistant in a fictional demo using synthetic reservations. I can help change hotel dates, but I cannot make a real booking or charge. Please share your confirmation code and last name.",
-      emit,
-    );
+    await this.speak(session, "greeting", { agencyName: "Meridian and Pine Travel" }, emit);
     session.send({ type: "GREETED" });
     session.voiceMode = "listening";
     emit({ type: "snapshot", snapshot: session.snapshot() });
@@ -88,13 +92,14 @@ export class Orchestrator {
         session.offTopicCount += 1;
         await this.speak(
           session,
-          "I can only help with a fictional hotel-date change in this demo. Please share your confirmation code and last name, or continue with the date change.",
+          "scope_repair",
+          { supportedScope: "a fictional hotel-date change" },
           emit,
         );
         return;
       }
       session.send({ type: "UNSUPPORTED" });
-      await this.speak(session, "I can't help with that request, so I'll end this demo call safely.", emit);
+      await this.speak(session, "unsupported_end", {}, emit);
       session.complete("unsupported");
       emit({ type: "snapshot", snapshot: session.snapshot() });
       return;
@@ -103,6 +108,14 @@ export class Orchestrator {
     const state = workflowState(session.workflow);
     const parsed = await this.agent.interpret(state, text, session.mode === "live");
     session.metrics.llmMs = parsed.durationMs;
+    session.metrics.interpretationBy = parsed.usedModel ? "model" : "deterministic";
+    if (parsed.fallbackReason) {
+      emit({
+        type: "notice",
+        level: "warning",
+        message: "Live interpretation failed. This turn used the deterministic parser fallback.",
+      });
+    }
 
     switch (state) {
       case "identifying":
@@ -128,7 +141,7 @@ export class Orchestrator {
         }
         break;
       default:
-        await this.speak(session, "One moment while I keep this demo call in a safe workflow state.", emit);
+        await this.speak(session, "workflow_recovery", {}, emit);
     }
     session.metrics.turnTotalMs = Math.round(performance.now() - turnStartedAt);
     emit({ type: "snapshot", snapshot: session.snapshot() });
@@ -208,7 +221,7 @@ export class Orchestrator {
         await this.escalate(session, ["uncertainty"], "Reservation identity could not be verified.", emit);
         return;
       }
-      await this.speak(session, "I need both the confirmation code and the last name on the reservation.", emit);
+      await this.speak(session, "ask_identity", {}, emit);
       return;
     }
 
@@ -224,11 +237,7 @@ export class Orchestrator {
     if (!result.ok) {
       if (result.code === "NOT_FOUND" && session.incrementRepair("identity") < 2) {
         session.identity = {};
-        await this.speak(
-          session,
-          "I couldn't match those details. Please try the confirmation code and last name one more time.",
-          emit,
-        );
+        await this.speak(session, "identity_not_found", {}, emit);
         return;
       }
       await this.escalate(
@@ -245,7 +254,13 @@ export class Orchestrator {
     const stay = session.reservation.stay;
     await this.speak(
       session,
-      `I found ${stay.hotelName} in ${stay.city}, from ${formatDate(stay.checkIn)} to ${formatDate(stay.checkOut)}. What new check-in and check-out dates would you like?`,
+      "reservation_found",
+      {
+        hotelName: stay.hotelName,
+        city: stay.city,
+        checkIn: stay.checkIn,
+        checkOut: stay.checkOut,
+      },
       emit,
     );
   }
@@ -263,7 +278,7 @@ export class Orchestrator {
         await this.escalate(session, ["uncertainty"], "The requested dates remained unclear.", emit);
         return;
       }
-      await this.speak(session, "Please give me both the new check-in and check-out dates.", emit);
+      await this.speak(session, "ask_dates", {}, emit);
       return;
     }
     session.send({ type: "DATES_READY" });
@@ -292,11 +307,7 @@ export class Orchestrator {
         if (session.incrementRepair("dates") >= 2) {
           await this.escalate(session, ["uncertainty"], "Valid hotel dates could not be established.", emit);
         } else {
-          await this.speak(
-            session,
-            "Those dates don't form a valid stay. Check-out must be after check-in. Please try both dates again.",
-            emit,
-          );
+          await this.speak(session, "invalid_dates", {}, emit);
         }
         return;
       }
@@ -307,13 +318,7 @@ export class Orchestrator {
     session.options = result.value.options as ChangeOption[];
     session.selectedOption = undefined;
     session.send({ type: "QUOTED" });
-    const spokenOptions = session.options
-      .map(
-        (option, index) =>
-          `Option ${index + 1}: ${formatDate(option.checkIn)} to ${formatDate(option.checkOut)}, ${option.roomType}, ${formatDelta(option.priceDeltaCents)}`,
-      )
-      .join(". ");
-    await this.speak(session, `I found three mock options. ${spokenOptions}. Which option would you like?`, emit);
+    await this.speak(session, "present_options", { options: session.options }, emit);
     session.send({ type: "OPTIONS_PRESENTED" });
     session.voiceMode = "listening";
   }
@@ -324,24 +329,20 @@ export class Orchestrator {
         await this.escalate(session, ["uncertainty"], "An available option could not be selected reliably.", emit);
         return;
       }
-      await this.speak(session, "Please say first, second, or third option.", emit);
+      await this.speak(session, "ask_option", {}, emit);
       return;
     }
     session.selectedOption = session.options[optionNumber - 1];
     session.send({ type: "SELECT" });
     const option = session.selectedOption;
-    await this.speak(
-      session,
-      `To recap: ${formatDate(option.checkIn)} to ${formatDate(option.checkOut)}, ${option.roomType}, ${formatDelta(option.priceDeltaCents)}. This is fictional and no payment will occur. Would you like me to confirm this mock change?`,
-      emit,
-    );
+    await this.speak(session, "ask_confirmation", { option }, emit);
   }
 
   private async handleConfirmation(session: CallSession, affirmed: boolean, denied: boolean, emit: EmitEvent) {
     if (denied) {
       session.selectedOption = undefined;
       session.send({ type: "CHANGE_SELECTION" });
-      await this.speak(session, "No change was made. Please choose the first, second, or third option.", emit);
+      await this.speak(session, "selection_declined", {}, emit);
       return;
     }
     if (!affirmed || !session.selectedOption || !session.quoteToken) {
@@ -349,7 +350,7 @@ export class Orchestrator {
         await this.escalate(session, ["uncertainty"], "Explicit confirmation could not be established.", emit);
         return;
       }
-      await this.speak(session, "I need an explicit yes to confirm this mock change, or you can say no.", emit);
+      await this.speak(session, "require_explicit_confirmation", {}, emit);
       return;
     }
     session.send({ type: "CONFIRM" });
@@ -366,7 +367,7 @@ export class Orchestrator {
     if (!result.ok) {
       if (result.code === "STALE_QUOTE" && session.incrementRepair("stale_quote") === 1) {
         session.send({ type: "REQUOTE" });
-        await this.speak(session, "That mock quote expired. I'll refresh the three options before asking you to confirm again.", emit);
+        await this.speak(session, "quote_expired", {}, emit);
         await this.performQuote(session, emit);
         return;
       }
@@ -378,7 +379,13 @@ export class Orchestrator {
     const confirmation = String(result.value.mockConfirmationNumber);
     await this.speak(
       session,
-      `Your fictional stay at ${session.reservation.stay.hotelName} is now changed to ${formatDate(session.reservation.stay.checkIn)} through ${formatDate(session.reservation.stay.checkOut)}. Your mock confirmation is ${confirmation}. No real booking or payment was made.`,
+      "confirm_changed",
+      {
+        hotelName: session.reservation.stay.hotelName,
+        checkIn: session.reservation.stay.checkIn,
+        checkOut: session.reservation.stay.checkOut,
+        mockConfirmationNumber: confirmation,
+      },
       emit,
     );
     session.complete("changed");
@@ -439,20 +446,54 @@ export class Orchestrator {
     };
     await this.speak(
       session,
-      "This request needs a human travel specialist. I've stopped the automated workflow and prepared a summary for a simulated handoff. No reservation or payment was changed.",
+      "escalate",
+      {
+        reasons: session.escalationReasons,
+        queueLabel: session.handoffSummary.queueLabel,
+      },
       emit,
     );
     session.complete("escalated");
     emit({ type: "snapshot", snapshot: session.snapshot() });
   }
 
-  private async speak(session: CallSession, text: string, emit: EmitEvent) {
+  private async speak<I extends SpeechIntent>(
+    session: CallSession,
+    intent: I,
+    facts: SpeechFactsByIntent[I],
+    emit: EmitEvent,
+  ) {
     session.voiceMode = "speaking";
-    session.agentPrompt = text;
-    const turn = session.addTurn("agent", text);
+    const narration = await this.narrator.render(intent, facts, {
+      live: session.mode === "live",
+      scenarioId: session.scenarioId,
+      occurrence: session.nextNarrationOccurrence(intent),
+    });
+    session.metrics.narrationMs = narration.trace.latencyMs;
+    session.metrics.narrationBy = narration.renderedBy;
+    session.agentPrompt = narration.text;
+    const turn = session.addTurn("agent", narration.text, true, narration.trace);
     emit({ type: "snapshot", snapshot: session.snapshot() });
-    const speech = await this.agent.synthesize(text, session.mode === "live");
+    if (narration.trace.fallbackReason) {
+      const detail =
+        narration.trace.fallbackReason === "fidelity_violation"
+          ? "A language candidate failed fact-fidelity verification."
+          : "The preferred language source was unavailable.";
+      emit({
+        type: "notice",
+        level: "warning",
+        message: detail + " A verified template fallback is shown in the transcript.",
+      });
+    }
+    const speech = await this.agent.synthesize(narration.text, session.mode === "live");
     session.metrics.ttsMs = speech.durationMs;
+    if (speech.fallbackReason) {
+      emit({
+        type: "notice",
+        level: "warning",
+        message: "Hosted text-to-speech failed. Browser speech fallback is being used.",
+      });
+    }
     emit({
       type: "agent.message",
       turn,

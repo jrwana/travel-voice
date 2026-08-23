@@ -12,12 +12,20 @@ import { Orchestrator, type EmitEvent } from "./orchestrator.js";
 import { QuotaManager } from "./quota.js";
 import { SessionStore } from "./session.js";
 import { AgentService } from "./services/agent.js";
+import type { ServiceLogger } from "./services/logger.js";
+import { NarratorService } from "./services/narrator.js";
 import { RealtimeTranscriber } from "./services/realtimeTranscriber.js";
 
 const app = Fastify({ logger: true, trustProxy: true, bodyLimit: 1_000_000 });
-const agent = new AgentService();
+const serviceLogger: ServiceLogger = {
+  error: (context, message) => app.log.error(context, message),
+  warn: (context, message) => app.log.warn(context, message),
+  info: (context, message) => app.log.info(context, message),
+};
+const agent = new AgentService(process.env.OPENAI_API_KEY, serviceLogger);
+const narrator = new NarratorService({ logger: serviceLogger });
 const sessions = new SessionStore(agent.available);
-const orchestrator = new Orchestrator(agent);
+const orchestrator = new Orchestrator(agent, narrator);
 const quota = new QuotaManager();
 const port = Number(process.env.PORT ?? 3001);
 const rootDir = process.cwd();

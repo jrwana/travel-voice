@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ServerEvent } from "../src/shared/contracts.js";
 import { demoScenarios } from "../src/shared/scenarios.js";
 import { workflowState } from "../server/domain/workflow.js";
 import { Orchestrator } from "../server/orchestrator.js";
 import { CallSession } from "../server/session.js";
 import { AgentService } from "../server/services/agent.js";
+import { silentServiceLogger } from "../server/services/logger.js";
+import { NarratorService } from "../server/services/narrator.js";
 
 describe("five scripted evaluation calls", () => {
   for (const scenario of demoScenarios) {
@@ -55,4 +57,47 @@ describe("five scripted evaluation calls", () => {
       expect(events.some((event) => event.type === "agent.message")).toBe(true);
     });
   }
+});
+
+describe("escalation ordering", () => {
+  it("commits deterministic escalation before the narrator phrases the handoff", async () => {
+    const agent = new AgentService("", silentServiceLogger);
+    const interpret = vi.spyOn(agent, "interpret");
+    const observed: Array<{ intent: string; state: string; handoffReady: boolean }> = [];
+    let session: CallSession;
+    const narrator = new NarratorService({
+      logger: silentServiceLogger,
+      generator: async ({ intent }) => {
+        observed.push({
+          intent,
+          state: workflowState(session.workflow),
+          handoffReady: Boolean(session.handoffSummary),
+        });
+        if (intent === "greeting") {
+          return "Welcome to {{agency_name}}. I'm an AI assistant using synthetic reservations. Please share your confirmation code and last name.";
+        }
+        return "A human travel specialist is required, and I have prepared the handoff. No reservation or payment was changed.";
+      },
+    });
+    session = new CallSession("test_escalation_order", true);
+    const orchestrator = new Orchestrator(agent, narrator);
+    const emit = (_event: ServerEvent) => undefined;
+
+    await orchestrator.startCall(session, "payment_penalty", "live", emit);
+    await orchestrator.handleCallerText(
+      session,
+      "I cancelled and you charged me a penalty twice. I dispute that charge.",
+      emit,
+    );
+
+    const escalationRender = observed.find((entry) => entry.intent === "escalate");
+    expect(escalationRender).toEqual({
+      intent: "escalate",
+      state: "escalated",
+      handoffReady: true,
+    });
+    expect(interpret).not.toHaveBeenCalled();
+    expect(session.toolCalls).toHaveLength(0);
+    expect(session.outcome).toBe("escalated");
+  });
 });

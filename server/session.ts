@@ -12,6 +12,8 @@ import type {
   PublicReservation,
   ToolCallTrace,
   TranscriptTurn,
+  SpeechIntent,
+  SpeechRenderTrace,
   VoiceMode,
 } from "../src/shared/contracts.js";
 import { scenarioById } from "../src/shared/scenarios.js";
@@ -49,6 +51,7 @@ export class CallSession {
   firstPartialAtMs?: number;
   turnStartedAtMs?: number;
   stateHistory: string[] = [];
+  narrationOccurrences: Partial<Record<SpeechIntent, number>> = {};
 
   constructor(
     readonly sessionId: string,
@@ -86,6 +89,7 @@ export class CallSession {
     this.firstPartialAtMs = undefined;
     this.turnStartedAtMs = undefined;
     this.stateHistory = ["idle"];
+    this.narrationOccurrences = {};
     this.send({ type: "START" });
   }
 
@@ -95,13 +99,19 @@ export class CallSession {
     this.lastActiveAt = Date.now();
   }
 
-  addTurn(role: TranscriptTurn["role"], text: string, final = true): TranscriptTurn {
+  addTurn(
+    role: TranscriptTurn["role"],
+    text: string,
+    final = true,
+    narration?: SpeechRenderTrace,
+  ): TranscriptTurn {
     const turn: TranscriptTurn = {
       id: `turn_${randomUUID()}`,
       role,
       text,
       at: new Date().toISOString(),
       final,
+      narration,
     };
     this.transcript.push(turn);
     this.lastActiveAt = Date.now();
@@ -130,6 +140,12 @@ export class CallSession {
   incrementRepair(key: string): number {
     this.repairCounts[key] = (this.repairCounts[key] ?? 0) + 1;
     return this.repairCounts[key];
+  }
+
+  nextNarrationOccurrence(intent: SpeechIntent): number {
+    const occurrence = (this.narrationOccurrences[intent] ?? 0) + 1;
+    this.narrationOccurrences[intent] = occurrence;
+    return occurrence;
   }
 
   complete(outcome: CallOutcome): void {
@@ -184,6 +200,7 @@ export class CallSession {
     this.turnStartedAtMs = undefined;
     this.callTimestamps = [];
     this.stateHistory = ["idle"];
+    this.narrationOccurrences = {};
     this.lastActiveAt = Date.now();
   }
 

@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { ConversationState } from "../../src/shared/contracts.js";
 import { parseTurnDeterministic, type ParsedTurn } from "../domain/parser.js";
+import { consoleServiceLogger, type ServiceLogger } from "./logger.js";
 
 interface ModelTurn {
   intent:
@@ -24,6 +25,7 @@ export interface InterpretedTurn extends ParsedTurn {
   intent: ModelTurn["intent"];
   usedModel: boolean;
   durationMs: number;
+  fallbackReason?: string;
 }
 
 const turnSchema = {
@@ -66,7 +68,10 @@ export class AgentService {
   private readonly client?: OpenAI;
   private readonly model: string;
 
-  constructor(apiKey = process.env.OPENAI_API_KEY) {
+  constructor(
+    apiKey = process.env.OPENAI_API_KEY,
+    private readonly logger: ServiceLogger = consoleServiceLogger,
+  ) {
     this.client = apiKey ? new OpenAI({ apiKey }) : undefined;
     this.model = process.env.OPENAI_AGENT_MODEL ?? "gpt-5.4-mini";
   }
@@ -125,17 +130,26 @@ export class AgentService {
         usedModel: true,
         durationMs: Math.round(performance.now() - startedAt),
       };
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        { error: message, model: this.model, state },
+        "Caller-turn interpretation failed; using deterministic parser fallback",
+      );
       return {
         ...deterministic,
         intent: this.inferIntent(deterministic),
         usedModel: false,
         durationMs: Math.round(performance.now() - startedAt),
+        fallbackReason: message,
       };
     }
   }
 
-  async synthesize(text: string, live: boolean): Promise<{ audio?: Buffer; durationMs: number }> {
+  async synthesize(
+    text: string,
+    live: boolean,
+  ): Promise<{ audio?: Buffer; durationMs: number; fallbackReason?: string }> {
     const startedAt = performance.now();
     if (!live || !this.client) return { durationMs: 0 };
     try {
@@ -150,8 +164,13 @@ export class AgentService {
         audio: Buffer.from(await response.arrayBuffer()),
         durationMs: Math.round(performance.now() - startedAt),
       };
-    } catch {
-      return { durationMs: Math.round(performance.now() - startedAt) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        { error: message, model: process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts" },
+        "Text-to-speech failed; browser speech fallback will be used",
+      );
+      return { durationMs: Math.round(performance.now() - startedAt), fallbackReason: message };
     }
   }
 
