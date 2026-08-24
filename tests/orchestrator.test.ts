@@ -6,7 +6,7 @@ import { Orchestrator } from "../server/orchestrator.js";
 import { CallSession } from "../server/session.js";
 import { AgentService } from "../server/services/agent.js";
 import { silentServiceLogger } from "../server/services/logger.js";
-import { NarratorService } from "../server/services/narrator.js";
+import { NarrationFixtureStore, NarratorService } from "../server/services/narrator.js";
 
 describe("five scripted evaluation calls", () => {
   for (const scenario of demoScenarios) {
@@ -122,6 +122,80 @@ describe("live exploration identity", () => {
     const session = new CallSession("test_live_exploration", true);
     await orchestrator.startCall(session, "happy_exact", "live", () => undefined);
     expect(session.scenarioId).toBe("live_exploration");
+  });
+
+  it("accepts paraphrased model interpretations while deterministic code guards mutation", async () => {
+    const agent = new AgentService("");
+    const fixtureStore = NarrationFixtureStore.load();
+    const occurrences = new Map<string, number>();
+    const narrator = new NarratorService({
+      generator: async ({ intent }) => {
+        const occurrence = (occurrences.get(intent) ?? 0) + 1;
+        occurrences.set(intent, occurrence);
+        const fixture = fixtureStore.get("happy_exact", intent, occurrence);
+        if (!fixture) throw new Error(`Missing test fixture for ${intent}:${occurrence}`);
+        return fixture.candidateText;
+      },
+    });
+    const interpretations = vi.spyOn(agent, "interpret");
+    interpretations
+      .mockResolvedValueOnce({
+        intent: "find_reservation",
+        confirmationCode: "MPT-4821",
+        lastName: "Lee",
+        affirmed: false,
+        denied: false,
+        wantsDateChange: true,
+        usedModel: true,
+        durationMs: 4,
+      })
+      .mockResolvedValueOnce({
+        intent: "change_dates",
+        checkIn: "2027-10-20",
+        checkOut: "2027-10-24",
+        affirmed: false,
+        denied: false,
+        wantsDateChange: true,
+        usedModel: true,
+        durationMs: 4,
+      })
+      .mockResolvedValueOnce({
+        intent: "select_option",
+        optionNumber: 2,
+        affirmed: false,
+        denied: false,
+        wantsDateChange: false,
+        usedModel: true,
+        durationMs: 4,
+      })
+      .mockResolvedValueOnce({
+        intent: "confirm",
+        affirmed: true,
+        denied: false,
+        wantsDateChange: false,
+        usedModel: true,
+        durationMs: 4,
+      });
+
+    const orchestrator = new Orchestrator(agent, narrator);
+    const session = new CallSession("test_live_paraphrases", true);
+    const emit = (_event: ServerEvent) => undefined;
+    await orchestrator.startCall(session, "live_exploration", "live", emit);
+    await orchestrator.handleCallerText(session, "It's the Lisbon trip under MPT 4821—surname Lee.", emit);
+    await orchestrator.handleCallerText(session, "Could you shift it to the twentieth through the twenty-fourth of October?", emit);
+    await orchestrator.handleCallerText(session, "The middle choice feels right.", emit);
+
+    expect(workflowState(session.workflow)).toBe("awaiting_confirmation");
+    expect(session.toolCalls.some((call) => call.action === "confirm_date_change")).toBe(false);
+
+    await orchestrator.handleCallerText(session, "Yes, please make that exact mock change.", emit);
+
+    expect(session.outcome).toBe("changed");
+    expect(session.toolCalls.filter((call) => call.action === "confirm_date_change")).toHaveLength(1);
+    expect(session.transcript.filter((turn) => turn.role === "agent").every(
+      (turn) => turn.narration?.renderedBy === "model" && turn.narration.fidelity.status === "verified",
+    )).toBe(true);
+    expect(interpretations).toHaveBeenCalledTimes(4);
   });
 });
 
