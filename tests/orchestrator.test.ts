@@ -68,6 +68,63 @@ describe("five scripted evaluation calls", () => {
   }
 });
 
+describe("verified scenario suite", () => {
+  it("runs all five scenarios independently and reports replay provenance", async () => {
+    const orchestrator = new Orchestrator(new AgentService(""));
+    const session = new CallSession("test_verified_suite", false, "test playback");
+    const events: ServerEvent[] = [];
+    const results = await orchestrator.playScenarioSuite(
+      session,
+      (event) => events.push(event),
+      () => true,
+      async () => undefined,
+    );
+
+    expect(results).toHaveLength(5);
+    expect(results.every((result) => result.passed)).toBe(true);
+    expect(results.every((result) => result.actualOutcome === result.expectedOutcome)).toBe(true);
+    expect(results.every((result) => result.narrationSources.fixture > 0)).toBe(true);
+    expect(results.every((result) => result.narrationSources.model === 0)).toBe(true);
+    expect(results.every((result) => result.narrationSources.template === 0)).toBe(true);
+    expect(events[0]).toEqual({ type: "scenario.suite.started", total: 5 });
+    expect(events.filter((event) => event.type === "scenario.complete")).toHaveLength(5);
+    expect(events.at(-1)).toMatchObject({
+      type: "scenario.suite.complete",
+      passed: true,
+      cancelled: false,
+    });
+  });
+
+  it("stops before the next scenario when a suite run is cancelled", async () => {
+    const orchestrator = new Orchestrator(new AgentService(""));
+    const session = new CallSession("test_cancelled_suite", false, "test playback");
+    let checks = 0;
+    const events: ServerEvent[] = [];
+    const results = await orchestrator.playScenarioSuite(
+      session,
+      (event) => events.push(event),
+      () => ++checks === 1,
+      async () => undefined,
+    );
+
+    expect(results).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({
+      type: "scenario.suite.complete",
+      passed: false,
+      cancelled: true,
+    });
+  });
+});
+
+describe("live exploration identity", () => {
+  it("labels freeform live calls separately from replay scenarios", async () => {
+    const orchestrator = new Orchestrator(new AgentService(""));
+    const session = new CallSession("test_live_exploration", true);
+    await orchestrator.startCall(session, "happy_exact", "live", () => undefined);
+    expect(session.scenarioId).toBe("live_exploration");
+  });
+});
+
 describe("escalation ordering", () => {
   it("commits deterministic escalation before the narrator phrases the handoff", async () => {
     const agent = new AgentService("", silentServiceLogger);

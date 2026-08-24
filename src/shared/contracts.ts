@@ -217,6 +217,16 @@ export interface DemoScenario {
   turns: ScenarioTurn[];
 }
 
+export interface ScenarioEvaluationResult {
+  scenarioId: string;
+  passed: boolean;
+  expectedOutcome: CallOutcome;
+  actualOutcome?: CallOutcome;
+  assertions: string[];
+  toolCount: number;
+  narrationSources: Record<RenderedBy, number>;
+}
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("call.start"), scenarioId: z.string(), mode: z.enum(["live", "playback"]) }),
   z.object({ type: z.literal("call.end") }),
@@ -234,6 +244,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("session.reset"), scenarioId: z.string().optional() }),
   z.object({ type: z.literal("scenario.play"), scenarioId: z.string() }),
+  z.object({ type: z.literal("scenario.suite.play") }),
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -244,7 +255,9 @@ export type ServerEvent =
   | { type: "transcript.final"; turn: TranscriptTurn }
   | { type: "agent.message"; turn: TranscriptTurn; audioBase64?: string; audioMimeType?: string }
   | { type: "notice"; level: "info" | "warning" | "error"; message: string }
-  | { type: "scenario.complete"; scenarioId: string; passed: boolean; assertions: string[] };
+  | ({ type: "scenario.complete" } & ScenarioEvaluationResult)
+  | { type: "scenario.suite.started"; total: number }
+  | { type: "scenario.suite.complete"; passed: boolean; cancelled: boolean; results: ScenarioEvaluationResult[] };
 
 export interface BootstrapResponse {
   sessionId: string;

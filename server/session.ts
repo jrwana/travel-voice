@@ -64,7 +64,7 @@ export class CallSession {
     this.callTimestamps.push(Date.now());
     this.workflow.stop?.();
     this.workflow = newWorkflowActor();
-    this.scenarioId = scenarioById(scenarioId).id;
+    this.scenarioId = mode === "live" ? "live_exploration" : scenarioById(scenarioId).id;
     this.mode = mode;
     this.callId = `call_${randomUUID()}`;
     this.voiceMode = "processing";

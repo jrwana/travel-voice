@@ -3,11 +3,12 @@ import type {
   ChangeOption,
   EscalationReason,
   PublicReservation,
+  ScenarioEvaluationResult,
   ServerEvent,
   SpeechIntent,
   ToolCallTrace,
 } from "../src/shared/contracts.js";
-import { scenarioById } from "../src/shared/scenarios.js";
+import { demoScenarios, scenarioById } from "../src/shared/scenarios.js";
 import { evaluatePolicy } from "./domain/policy.js";
 import {
   type ManageReservationInput,
@@ -168,17 +169,23 @@ export class Orchestrator {
     emit({ type: "snapshot", snapshot: session.snapshot() });
   }
 
-  async playScenario(session: CallSession, scenarioId: string, emit: EmitEvent): Promise<void> {
+  async playScenario(
+    session: CallSession,
+    scenarioId: string,
+    emit: EmitEvent,
+    pause: (ms: number) => Promise<void> = wait,
+  ): Promise<ScenarioEvaluationResult> {
     const scenario = scenarioById(scenarioId);
+    session.resetAll(scenario.id);
     await this.startCall(session, scenario.id, "playback", emit);
     const assertions: string[] = [];
     for (const scriptedTurn of scenario.turns) {
-      await wait(500);
+      await pause(500);
       session.beginTurn();
       session.notePartial(scriptedTurn.caller.slice(0, Math.max(12, Math.round(scriptedTurn.caller.length * 0.55))));
       emit({ type: "transcript.partial", text: session.partialTranscript });
       emit({ type: "snapshot", snapshot: session.snapshot() });
-      await wait(250);
+      await pause(250);
       const turn = session.completeTranscript(scriptedTurn.caller);
       emit({ type: "transcript.final", turn });
       await this.handleCallerText(session, scriptedTurn.caller, emit, false);
@@ -200,12 +207,46 @@ export class Orchestrator {
         : `FAIL expected outcome ${scenario.expectedOutcome}, received ${session.outcome ?? "none"}`,
     );
     assertions.push(reasonsPass ? "PASS escalation reasons" : "FAIL escalation reasons");
-    emit({
-      type: "scenario.complete",
+    const narrationSources = { model: 0, fixture: 0, template: 0 };
+    for (const turn of session.transcript) {
+      if (turn.narration) narrationSources[turn.narration.renderedBy] += 1;
+    }
+    const result: ScenarioEvaluationResult = {
       scenarioId: scenario.id,
       passed: assertions.every((assertion) => assertion.startsWith("PASS")),
+      expectedOutcome: scenario.expectedOutcome,
+      actualOutcome: session.outcome,
       assertions,
+      toolCount: session.toolCalls.length,
+      narrationSources,
+    };
+    emit({
+      type: "scenario.complete",
+      ...result,
     });
+    return result;
+  }
+
+  async playScenarioSuite(
+    session: CallSession,
+    emit: EmitEvent,
+    shouldContinue: () => boolean = () => true,
+    pause: (ms: number) => Promise<void> = wait,
+  ): Promise<ScenarioEvaluationResult[]> {
+    const results: ScenarioEvaluationResult[] = [];
+    emit({ type: "scenario.suite.started", total: demoScenarios.length });
+    for (const scenario of demoScenarios) {
+      if (!shouldContinue()) break;
+      results.push(await this.playScenario(session, scenario.id, emit, pause));
+    }
+    const cancelled = results.length < demoScenarios.length;
+    emit({
+      type: "scenario.suite.complete",
+      passed: !cancelled && results.every((result) => result.passed),
+      cancelled,
+      results,
+    });
+    return results;
   }
 
   private async handleIdentity(

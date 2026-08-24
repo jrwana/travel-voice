@@ -86,6 +86,7 @@ app.get<{ Querystring: { sessionId?: string } }>(
     let liveQuotaConsumed = false;
     let processing = Promise.resolve();
     let callTimer: NodeJS.Timeout | undefined;
+    let suiteRunId = 0;
     const emit: EmitEvent = (event: ServerEvent) => {
       if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(event));
     };
@@ -128,6 +129,7 @@ app.get<{ Querystring: { sessionId?: string } }>(
         return;
       }
       if (message.type === "call.start") {
+        suiteRunId += 1;
         enqueue(async () => {
           releaseLive();
           if (message.mode === "live") {
@@ -199,22 +201,38 @@ app.get<{ Querystring: { sessionId?: string } }>(
         return;
       }
       if (message.type === "call.end") {
+        suiteRunId += 1;
         enqueue(() => orchestrator.endCall(session, emit));
         return;
       }
       if (message.type === "session.reset") {
+        suiteRunId += 1;
         releaseLive();
-        session.resetAll(message.scenarioId);
-        emit({ type: "snapshot", snapshot: session.snapshot() });
+        enqueue(async () => {
+          session.resetAll(message.scenarioId);
+          emit({ type: "snapshot", snapshot: session.snapshot() });
+        });
         return;
       }
       if (message.type === "scenario.play") {
+        suiteRunId += 1;
         releaseLive();
-        enqueue(() => orchestrator.playScenario(session, message.scenarioId, emit));
+        enqueue(async () => {
+          await orchestrator.playScenario(session, message.scenarioId, emit);
+        });
+        return;
+      }
+      if (message.type === "scenario.suite.play") {
+        releaseLive();
+        const runId = ++suiteRunId;
+        enqueue(async () => {
+          await orchestrator.playScenarioSuite(session, emit, () => suiteRunId === runId);
+        });
       }
     });
 
     socket.on("close", () => {
+      suiteRunId += 1;
       releaseLive();
       if (session.callId && !session.outcome) void orchestrator.endCall(session, () => undefined);
     });
