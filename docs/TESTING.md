@@ -5,7 +5,7 @@
 - Node.js 22 or newer
 - npm
 - Chromium installed by Playwright for browser smoke tests
-- No API key for Scenario Playback
+- No API key is required for the verified replay suite
 - `OPENAI_API_KEY` only for live STT, interpretation, and hosted TTS
 - Optional OpenAI-compatible vLLM endpoint for narration and fixture recording
 
@@ -21,7 +21,7 @@ npm run test:e2e
 The documented baseline is:
 
 - TypeScript server and client builds pass
-- 20 Vitest tests pass
+- 36 Vitest tests pass
 - Five of five scripted calls pass
 - One Playwright smoke test passes
 
@@ -33,14 +33,23 @@ Treat the exact counts as a historical baseline; new focused tests should increa
 npm run dev
 ```
 
-Open `http://localhost:5173` and use Scenario Playback first. Expected UI evidence:
+With `OPENAI_API_KEY` configured, open `http://localhost:5173` and use **Start live call** first. The three suggested prompts should fill the composer without sending; reviewers may speak or type any paraphrase. Expected live evidence:
 
-- Every agent line shows `Model fixture · verified`
-- Interpretation shows `Deterministic parser`
-- Language shows `Verified model fixture`
+- The primary action is enabled and starts `live_exploration`
+- Caller language is not restricted to the prompt suggestions
+- Interpretation shows `Model` with latency
+- Agent lines show `Live model · verified`
 - Tool calls show arguments, public results, status, and duration
 - The final card shows `changed` or `escalated`
 - Exported JSON contains per-turn narration provenance and fidelity data
+
+Without a key, the primary action remains visible but disabled with setup guidance. Use **Run verified scenarios** as the secondary evaluation and fallback path. Expected replay evidence:
+
+- **Run all five** produces five scorecards; every scenario can also run individually
+- Agent lines show `Replayed model fixture · verified`
+- Interpretation shows `Deterministic parser`
+- Batch replay is muted; individual replay can use browser speech
+- Scorecards report expected and actual outcome, assertions, tool count, and language-source counts
 
 ## Five-call acceptance matrix
 
@@ -107,7 +116,7 @@ NARRATOR_MODEL=openai/gpt-oss-20b \
 npm run dev
 ```
 
-Open `http://localhost:5173`, choose Live AI, allow microphone access, and speak only synthetic details. Expected differences from playback:
+Open `http://localhost:5173`, choose **Start live call**, allow microphone access, and speak only synthetic details. Expected differences from replay:
 
 - Interpretation shows `Model` with latency
 - Agent lines show `Live model · verified`
@@ -144,7 +153,7 @@ narration.fidelity.violations
 narration.fallbackReason
 ```
 
-For successful playback, all agent turns should be `fixture` and `verified`. For successful live narration, they should be `model` and `verified`. A `template` line must include a reason or indicate that the preferred source was unavailable.
+For successful replay, all agent turns should be `fixture` and `verified`. For successful live narration, they should be `model` and `verified`. A `template` line must include a reason or indicate that the preferred source was unavailable.
 
 ## Pre-commit discipline
 

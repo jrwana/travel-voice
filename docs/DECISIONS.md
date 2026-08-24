@@ -42,9 +42,9 @@ These records explain why the project is built this way and what each choice cos
 
 **Tradeoff:** Templates must be updated when facts or safety disclosures change. They should be treated as executable safety assets rather than incidental copy.
 
-## D6. Record and replay model fixtures
+## D6. Keep a verified scenario replay suite
 
-**Choice:** Scenario Playback uses drafts recorded from a live model and re-verifies them on every run.
+**Choice:** The secondary evaluation and fallback suite can run all five scenarios or each scenario individually. It uses drafts recorded from a model, re-verifies them on every run, and labels the resulting language as replayed.
 
 **Why:** A reviewer without an API key should still hear authentic model language. Record/replay provides that experience while keeping demos and CI deterministic, fast, and free of provider variance.
 
@@ -70,7 +70,7 @@ These records explain why the project is built this way and what each choice cos
 
 **Choice:** Track `interpretationBy` and `narrationBy` independently.
 
-**Why:** Playback uses a deterministic parser but authentic recorded model language. A single `LLM` latency tile hid this distinction and displayed `0ms`, which looked like the model was absent. Separate provenance tells the truth about both layers.
+**Why:** Replay uses a deterministic parser but authentic recorded model language. A single `LLM` latency tile hid this distinction and displayed `0ms`, which looked like the model was absent. Separate provenance tells the truth about both layers.
 
 **Tradeoff:** The UI and trace contain more concepts. The extra precision is worth it because it resembles the operational observability real voice platforms need.
 
@@ -105,3 +105,11 @@ These records explain why the project is built this way and what each choice cos
 **Why:** Silent fallback makes a demo look healthy while hiding that the model never ran. Voice-agent operations need to distinguish latency, policy, model, tool, and synthesis failures quickly.
 
 **Tradeoff:** The interface exposes implementation detail. That is a feature for this portfolio because the audience is evaluating platform thinking, not only consumer polish.
+
+## D14. Make live language the primary demo experience
+
+**Choice:** When an API key is configured, `Start live call` is the prominent default. It accepts unconstrained spoken or typed caller language and offers three optional prompt starters that only fill the composer. The verified scenario suite is visually secondary.
+
+**Why:** The primary claim is that a real model handles paraphrases and unexpected wording while deterministic policy, XState, and the server-owned tool keep authority. The replay suite proves reproducibility, scorecards, and no-key fallback without substituting for that live claim.
+
+**Tradeoff:** The strongest path depends on provider credentials and availability. Without a key, the live action remains visible but disabled with guidance, while the fully labeled replay suite still demonstrates the guarded system honestly.

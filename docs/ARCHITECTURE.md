@@ -45,9 +45,9 @@ Policy creates one of three branches:
 
 The escalation narrator runs only after the system is already escalated. It explains an existing decision; it does not make that decision.
 
-## Scenario Playback flow
+## Verified scenario replay flow
 
-Playback is designed for reviewers who have no API key:
+Live caller language is the primary product experience. Verified replay is the evaluation and fallback path for reproducible review, CI, and environments without an API key:
 
 `scripted caller turn -> deterministic parser -> same policy/workflow/tool path`
 
@@ -147,7 +147,7 @@ Each agent transcript turn carries a narration trace with:
 - Fixture key when applicable
 - Fidelity status, candidate draft, violations, and fallback reason
 
-Snapshots transmit this trace to the browser, and session export preserves it in JSON. Interpretation and narration provenance are separate so playback displays `Deterministic parser` and `Verified model fixture` instead of a misleading `LLM 0ms`.
+Snapshots transmit this trace to the browser, and session export preserves it in JSON. Interpretation and narration provenance are separate so replay displays `Deterministic parser` and `Replayed model fixture` instead of a misleading `LLM 0ms`. Live calls display model interpretation and `Live model · verified` narration independently.
 
 ## Failure behavior
 

@@ -28,11 +28,16 @@ The most important implementation files are:
 
 ## Current baseline
 
-The language-layer work is split into reviewable commits:
+The language layer and live-first demo strategy are split into reviewable commits:
 
 - `388311c` - fact-verified narration service
 - `8451de5` - all speech sites routed through narration intents
 - `faa01a2` - verified local-model playback fixtures
 - `5aa1791` - visible narration provenance and source-aware metrics
+- `5493246` - hardened live confirmation interpretation
+- `167cfe3` - context-aware numeric option selection
+- `e3a3736` - verified scenario suite runner and scorecards
+- `d9f269c` - guarded live paraphrase regression
+- `1e18695` - live-first interface and secondary replay suite
 
 At that baseline, `npm run check`, `npm run eval`, and `npm run test:e2e` all pass.

@@ -14,7 +14,7 @@ It cannot connect to a travel provider, charge a card, contact a human, or creat
 - Per-line language provenance (`model`, `fixture`, or `template`) in the UI and exported trace
 - Visible tool arguments, results, statuses, source-aware latency, call history, and final outcome
 - Deterministic escalation for payment disputes, cancellation penalties, urgent disruption, repeated uncertainty, and tool failure
-- Five one-click scripted evaluation calls that also run as automated regressions
+- A five-call verified scenario suite with run-all and individual replay controls, reproducibility scorecards, and automated regressions
 - Editable identity/date repair and typed-turn fallback when browser audio is unavailable
 - Downloadable JSON trace with an explicit synthetic-data disclaimer
 
@@ -24,7 +24,7 @@ Live voice path:
 
 `microphone -> AudioWorklet -> app WebSocket -> STT -> deterministic policy/workflow -> mock tool -> model renderer -> fact verifier -> TTS -> browser audio`
 
-Scenario Playback uses the same workflow, policy, tool, verifier, telemetry, and UI. It uses the deterministic parser and replays committed drafts recorded from a live model, re-verifying and hydrating them at runtime before browser speech synthesis. This makes authentic model language reviewable without an API key while remaining deterministic and visibly labeled.
+Verified Scenario Replay is the evaluation and fallback path, not the primary experience. It uses the same workflow, policy, tool, verifier, telemetry, and UI, but replaces live interpretation with the deterministic parser and replays committed drafts recorded from a model. Every draft is re-verified and hydrated at runtime before browser speech synthesis. The UI labels this language as replayed so it cannot be mistaken for live AI.
 
 The model has two narrow roles: live-mode intent/slot interpretation and caller-facing language rendering. XState owns progression, deterministic policy owns escalation, and the server is the only component allowed to invoke the mock tool. The renderer receives a speech intent plus already-computed facts only after code has made the decision. It cannot choose an option, confirm a mutation, escalate, or invoke a tool.
 
@@ -62,19 +62,21 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. Scenario Playback is immediately available and uses no external service.
-
-For live microphone mode, provide an OpenAI API key to the server process:
+For the primary live experience, provide an OpenAI API key to the server process:
 
 ```bash
 OPENAI_API_KEY=your_key npm run dev
 ```
 
+Open `http://localhost:5173` and choose **Start live call**. Speak or type natural caller language; the three suggested prompts are optional starting points and do not constrain the input.
+
+Without an API key, the live action remains visible but disabled with setup guidance. The five verified scenarios remain available as a clearly labeled replay-based evaluation and fallback suite.
+
 Optional configuration is documented in [.env.example](./.env.example). The API key is never sent to the browser; the server owns both hosted-model connections.
 
 The live narrator uses the OpenAI-compatible Responses API with `instructions`, `input`, and `output_text`; see the [official Responses create reference](https://developers.openai.com/api/reference/typescript/resources/beta/subresources/responses/methods/create).
 
-### Record playback fixtures with local vLLM
+### Record replay fixtures with local vLLM
 
 The recorder runs all five scenarios through the live renderer and refuses to write a fixture if any line falls back or fails verification. Its defaults target the local server used for this portfolio:
 
@@ -92,7 +94,7 @@ NARRATOR_MODEL=openai/gpt-oss-20b \
 npm run fixtures:record
 ```
 
-The committed fixture contains placeholder-bound model drafts, provider/model metadata, and stable scenario/intent/occurrence keys. Playback re-verifies every draft; a missing or stale fixture is surfaced as a template fallback.
+The committed fixture contains placeholder-bound model drafts, provider/model metadata, and stable scenario/intent/occurrence keys. Replay re-verifies every draft; a missing or stale fixture is surfaced as a template fallback.
 
 For a production-style local run:
 
@@ -145,7 +147,7 @@ The summary includes reasons, the last caller turn, known synthetic identity, an
 
 Live-mode abuse controls are deliberately small-demo controls: five-minute calls, three concurrent calls, 50 live calls per process/day, five per browser session/hour, and ten per IP/day. These counters are in memory and should be moved to shared durable storage before multi-instance deployment.
 
-## Scripted evaluations
+## Verified scenario suite
 
 | # | Scenario | Expected result |
 | --- | --- | --- |
@@ -163,7 +165,9 @@ npm run eval
 npm run test:e2e
 ```
 
-`npm test` verifies policy, parsing, exact identity matching, three-option quoting, invalid dates, idempotency, all five complete conversations, explicit confirmation before mutation, handoff reasons, model-fixture provenance, fabricated-fact rejection, spoken disclosure, and final outcome. `npm run eval` prints a compact five-call scorecard. The Playwright smoke test launches the production app and verifies the visible transcript, fixture provenance, tool trace, source-aware metrics, final outcome, and structural assertions.
+In the browser, **Run all five** produces an aggregate scorecard, while each scenario also has an individual replay control. Batch replay is muted; an individual replay can be heard. Fixture-generated lines are explicitly labeled `Replayed model fixture · verified`.
+
+`npm test` verifies policy, parsing, exact identity matching, three-option quoting, invalid dates, idempotency, all five complete conversations, explicit confirmation before mutation, handoff reasons, model-fixture provenance, fabricated-fact rejection, spoken disclosure, and final outcome. `npm run eval` prints a compact five-call scorecard. The Playwright smoke test launches the production app and verifies both run-all and individual replay controls, visible replay provenance, tool trace, scorecards, and outcomes.
 
 ## Project map
 
