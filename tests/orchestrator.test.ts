@@ -111,3 +111,32 @@ describe("escalation ordering", () => {
     expect(session.transcript.at(-1)?.narration?.renderedBy).toBe("model");
   });
 });
+
+describe("explicit confirmation boundary", () => {
+  it("does not invoke the mutation tool for an ambiguous interpreted confirmation", async () => {
+    const agent = new AgentService("");
+    const orchestrator = new Orchestrator(agent);
+    const session = new CallSession("test_ambiguous_confirmation", false, "test playback");
+    const emit = (_event: ServerEvent) => undefined;
+
+    await orchestrator.startCall(session, "happy_exact", "playback", emit);
+    await orchestrator.handleCallerText(session, "MPT-4821, last name Lee", emit);
+    await orchestrator.handleCallerText(session, "October 20 through October 24, 2027", emit);
+    await orchestrator.handleCallerText(session, "The first option", emit);
+
+    vi.spyOn(agent, "interpret").mockResolvedValue({
+      intent: "confirm",
+      usedModel: true,
+      durationMs: 1,
+      affirmed: false,
+      denied: false,
+      wantsDateChange: false,
+    });
+    await orchestrator.handleCallerText(session, "Yes—actually, I'm not sure.", emit);
+
+    expect(workflowState(session.workflow)).toBe("awaiting_confirmation");
+    expect(session.outcome).toBeUndefined();
+    expect(session.toolCalls.filter((call) => call.action === "confirm_date_change")).toHaveLength(0);
+    expect(session.transcript.at(-1)?.text).toContain("explicit yes");
+  });
+});

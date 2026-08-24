@@ -3,7 +3,7 @@ import type { ConversationState } from "../../src/shared/contracts.js";
 import { parseTurnDeterministic, type ParsedTurn } from "../domain/parser.js";
 import { consoleServiceLogger, type ServiceLogger } from "./logger.js";
 
-interface ModelTurn {
+export interface ModelTurn {
   intent:
     | "find_reservation"
     | "change_dates"
@@ -19,6 +19,23 @@ interface ModelTurn {
   optionNumber: number | null;
   affirmed: boolean;
   denied: boolean;
+}
+
+export function reconcileLiveTurn(parsed: ModelTurn, deterministic: ParsedTurn): ParsedTurn {
+  const hasUnambiguousConfirmation = parsed.affirmed !== parsed.denied;
+  return {
+    confirmationCode: parsed.confirmationCode ?? deterministic.confirmationCode,
+    lastName: parsed.lastName ?? deterministic.lastName,
+    checkIn: parsed.checkIn ?? deterministic.checkIn,
+    checkOut: parsed.checkOut ?? deterministic.checkOut,
+    optionNumber:
+      parsed.optionNumber && parsed.optionNumber >= 1 && parsed.optionNumber <= 3
+        ? (parsed.optionNumber as 1 | 2 | 3)
+        : deterministic.optionNumber,
+    affirmed: hasUnambiguousConfirmation ? parsed.affirmed : false,
+    denied: hasUnambiguousConfirmation ? parsed.denied : false,
+    wantsDateChange: parsed.intent === "change_dates" || deterministic.wantsDateChange,
+  };
 }
 
 export interface InterpretedTurn extends ParsedTurn {
@@ -115,17 +132,7 @@ export class AgentService {
       } as never);
       const parsed = JSON.parse(response.output_text) as ModelTurn;
       return {
-        confirmationCode: parsed.confirmationCode ?? deterministic.confirmationCode,
-        lastName: parsed.lastName ?? deterministic.lastName,
-        checkIn: parsed.checkIn ?? deterministic.checkIn,
-        checkOut: parsed.checkOut ?? deterministic.checkOut,
-        optionNumber:
-          parsed.optionNumber && parsed.optionNumber >= 1 && parsed.optionNumber <= 3
-            ? (parsed.optionNumber as 1 | 2 | 3)
-            : deterministic.optionNumber,
-        affirmed: parsed.affirmed || deterministic.affirmed,
-        denied: parsed.denied || deterministic.denied,
-        wantsDateChange: parsed.intent === "change_dates" || deterministic.wantsDateChange,
+        ...reconcileLiveTurn(parsed, deterministic),
         intent: parsed.intent,
         usedModel: true,
         durationMs: Math.round(performance.now() - startedAt),
