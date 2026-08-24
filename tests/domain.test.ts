@@ -31,6 +31,24 @@ describe("deterministic slot parser", () => {
       affirmed: true,
     });
   });
+
+  it.each([
+    ["option 2", 2],
+    ["I'll take 3", 3],
+    ["choose option 1 please", 1],
+    ["the second option sounds best", 2],
+  ] as const)("accepts contextual option selection: %s", (text, optionNumber) => {
+    expect(parseTurnDeterministic(text).optionNumber).toBe(optionNumber);
+  });
+
+  it.each([
+    "There are 2 guests on the reservation.",
+    "Move it to October 3, 2027.",
+    "My confirmation code ends in 1.",
+    "I called 3 times already.",
+  ])("does not treat an unrelated bare digit as an option: %s", (text) => {
+    expect(parseTurnDeterministic(text).optionNumber).toBeUndefined();
+  });
 });
 
 describe("single synthetic reservation tool", () => {

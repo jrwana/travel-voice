@@ -60,7 +60,9 @@ export function parseTurnDeterministic(text: string): ParsedTurn {
   const codeMatch = text.match(/\bMPT[\s-]?(\d{4})\b/i);
   const explicitName = text.match(/(?:last name(?: is)?|surname(?: is)?)\s+([a-z'-]+)/i)?.[1];
   const knownName = reservationSeeds.find((seed) => new RegExp(`\\b${seed.lastName}\\b`, "i").test(text))?.lastName;
-  const optionMatch = text.match(/(?:option\s*)?\b([123])\b/i)?.[1];
+  const optionMatch =
+    text.match(/\b(?:option|choice|number)\s*(?:number\s*)?([123])\b/i)?.[1] ??
+    text.match(/\b(?:take|choose|select|pick|want|prefer)\s+(?:option\s*)?([123])\b/i)?.[1];
   const ordinal = /\bfirst\b/i.test(text) ? 1 : /\bsecond\b/i.test(text) ? 2 : /\bthird\b/i.test(text) ? 3 : undefined;
   const dates = parseDateRange(text);
 
