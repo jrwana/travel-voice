@@ -3,8 +3,8 @@ import type {
   BootstrapResponse,
   CallSnapshot,
   ClientMessage,
-  DemoMode,
   DemoScenario,
+  ScenarioEvaluationResult,
   ServerEvent,
 } from "./shared/contracts.js";
 import { MicrophoneCapture, playBase64Audio, speakWithBrowser } from "./lib/audio.js";
@@ -13,12 +13,6 @@ interface Notice {
   id: number;
   level: "info" | "warning" | "error";
   message: string;
-}
-
-interface EvalResult {
-  scenarioId: string;
-  passed: boolean;
-  assertions: string[];
 }
 
 const formatDate = (iso: string) =>
@@ -36,9 +30,15 @@ const formatLatency = (value: number | undefined) =>
 
 const narrationProvenanceLabel = (renderedBy: "model" | "fixture" | "template") => {
   if (renderedBy === "model") return "Live model · verified";
-  if (renderedBy === "fixture") return "Model fixture · verified";
+  if (renderedBy === "fixture") return "Replayed model fixture · verified";
   return "Template fallback";
 };
+
+const livePromptSuggestions = [
+  "My confirmation is MPT 4821 — last name Lee.",
+  "Could we move the stay to October 20th through the 24th?",
+  "I was charged twice after cancelling, and I need to dispute it.",
+];
 
 const scenarioCardLabel = (scenarioId: string) => {
   if (scenarioId === "happy_exact") return "Move a Lisbon stay";
@@ -86,9 +86,10 @@ export function App() {
   const [bootstrap, setBootstrap] = useState<BootstrapResponse>();
   const [snapshot, setSnapshot] = useState<CallSnapshot>();
   const [selectedScenarioId, setSelectedScenarioId] = useState("happy_exact");
-  const [mode, setMode] = useState<DemoMode>("playback");
   const [notices, setNotices] = useState<Notice[]>([]);
-  const [evalResult, setEvalResult] = useState<EvalResult>();
+  const [evalResults, setEvalResults] = useState<Record<string, ScenarioEvaluationResult>>({});
+  const [suiteRunning, setSuiteRunning] = useState(false);
+  const [suiteTotal, setSuiteTotal] = useState(5);
   const [typedTurn, setTypedTurn] = useState("");
   const [confirmationCode, setConfirmationCode] = useState("MPT-4821");
   const [lastName, setLastName] = useState("Lee");
@@ -100,6 +101,7 @@ export function App() {
   const snapshotRef = useRef<CallSnapshot | undefined>(undefined);
   const microphoneRef = useRef(new MicrophoneCapture());
   const playbackDepth = useRef(0);
+  const suiteRunningRef = useRef(false);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   const addNotice = (level: Notice["level"], message: string) => {
@@ -151,7 +153,12 @@ export function App() {
       addNotice(event.level, event.message);
       return;
     }
-    if (event.type === "transcript.final" && snapshotRef.current?.mode === "playback" && event.turn.role === "caller") {
+    if (
+      event.type === "transcript.final" &&
+      snapshotRef.current?.mode === "playback" &&
+      event.turn.role === "caller" &&
+      !suiteRunningRef.current
+    ) {
       playbackDepth.current += 1;
       speakWithBrowser(event.turn.text, "caller", () => {
         playbackDepth.current = Math.max(0, playbackDepth.current - 1);
@@ -159,6 +166,7 @@ export function App() {
       return;
     }
     if (event.type === "agent.message") {
+      if (suiteRunningRef.current) return;
       playbackDepth.current += 1;
       const done = () => {
         playbackDepth.current = Math.max(0, playbackDepth.current - 1);
@@ -171,7 +179,19 @@ export function App() {
       return;
     }
     if (event.type === "scenario.complete") {
-      setEvalResult({ scenarioId: event.scenarioId, passed: event.passed, assertions: event.assertions });
+      setEvalResults((current) => ({ ...current, [event.scenarioId]: event }));
+      return;
+    }
+    if (event.type === "scenario.suite.started") {
+      suiteRunningRef.current = true;
+      setSuiteRunning(true);
+      setSuiteTotal(event.total);
+      return;
+    }
+    if (event.type === "scenario.suite.complete") {
+      suiteRunningRef.current = false;
+      setSuiteRunning(false);
+      setEvalResults(Object.fromEntries(event.results.map((result) => [result.scenarioId, result])));
     }
   };
 
@@ -188,7 +208,13 @@ export function App() {
     () => scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? scenarios[0],
     [scenarios, selectedScenarioId],
   );
+  const activeScenario = useMemo(
+    () => scenarios.find((scenario) => scenario.id === snapshot?.scenarioId) ?? selectedScenario,
+    [scenarios, selectedScenario, snapshot?.scenarioId],
+  );
   const callActive = Boolean(snapshot?.callId && !snapshot.outcome);
+  const liveCallActive = callActive && snapshot?.mode === "live";
+  const evaluationActive = suiteRunning || (callActive && snapshot?.mode === "playback");
   const interpretationMetric =
     snapshot?.metrics.interpretationBy === "model"
       ? `Model · ${formatLatency(snapshot.metrics.llmMs)}`
@@ -199,7 +225,7 @@ export function App() {
     snapshot?.metrics.narrationBy === "model"
       ? `Model · ${formatLatency(snapshot.metrics.narrationMs)}`
       : snapshot?.metrics.narrationBy === "fixture"
-        ? "Verified model fixture"
+        ? "Replayed model fixture"
         : snapshot?.metrics.narrationBy === "template"
           ? "Template fallback"
           : "—";
@@ -220,25 +246,21 @@ export function App() {
         }]
       : []),
   ];
+  const currentEvalResult = snapshot ? evalResults[snapshot.scenarioId] : undefined;
+  const completedEvaluations = Object.values(evalResults);
+  const passedEvaluations = completedEvaluations.filter((result) => result.passed).length;
 
-  const selectScenario = (scenario: DemoScenario) => {
-    if (callActive) return;
+  const prepareScenario = (scenario: DemoScenario) => {
     setSelectedScenarioId(scenario.id);
     setConfirmationCode(scenario.confirmationCode);
     setLastName(scenario.lastName);
     setCheckIn(scenario.id === "happy_correction" ? "2027-11-11" : "2027-10-20");
     setCheckOut(scenario.id === "happy_correction" ? "2027-11-15" : "2027-10-24");
-    setEvalResult(undefined);
   };
 
-  const startDemo = async () => {
-    if (!selectedScenario || callActive) return;
-    setEvalResult(undefined);
+  const startLiveCall = async () => {
+    if (!snapshot?.aiAvailable || callActive || suiteRunning) return;
     setMicError(undefined);
-    if (mode === "playback") {
-      send({ type: "scenario.play", scenarioId: selectedScenario.id });
-      return;
-    }
     try {
       await microphoneRef.current.start((audio) => {
         const current = snapshotRef.current;
@@ -251,7 +273,22 @@ export function App() {
       setMicError(message);
       addNotice("warning", "Microphone unavailable. You can still use typed turns and editable recovery fields.");
     }
-    send({ type: "call.start", scenarioId: selectedScenario.id, mode: "live" });
+    send({ type: "call.start", scenarioId: "live_exploration", mode: "live" });
+  };
+
+  const runScenario = (scenario: DemoScenario) => {
+    if (callActive || suiteRunning) return;
+    prepareScenario(scenario);
+    suiteRunningRef.current = false;
+    send({ type: "scenario.play", scenarioId: scenario.id });
+  };
+
+  const runScenarioSuite = () => {
+    if (callActive || suiteRunning) return;
+    setEvalResults({});
+    suiteRunningRef.current = true;
+    setSuiteRunning(true);
+    send({ type: "scenario.suite.play" });
   };
 
   const endDemo = () => {
@@ -265,7 +302,9 @@ export function App() {
     microphoneRef.current.stop();
     window.speechSynthesis?.cancel();
     playbackDepth.current = 0;
-    setEvalResult(undefined);
+    suiteRunningRef.current = false;
+    setSuiteRunning(false);
+    setEvalResults({});
     send({ type: "session.reset", scenarioId: selectedScenarioId });
   };
 
@@ -282,7 +321,7 @@ export function App() {
     window.location.assign(`/api/sessions/${encodeURIComponent(bootstrap.sessionId)}/export`);
   };
 
-  if (!bootstrap || !snapshot || !selectedScenario) {
+  if (!bootstrap || !snapshot || !selectedScenario || !activeScenario) {
     return (
       <main className="loading-screen">
         <BrandMark />
@@ -316,76 +355,85 @@ export function App() {
       </div>
 
       <main>
-        <section className="intro intro--compact">
+        <section className="intro intro--compact intro--live">
           <div>
             <p className="eyebrow">Voice agent portfolio</p>
-            <h1>Run a travel-support call. <em>Inspect every controlled decision.</em></h1>
+            <h1>Talk to a live voice agent. <em>Inspect every guarded action.</em></h1>
           </div>
           <ol className="flow-steps" aria-label="Demo flow">
-            <li>Choose</li>
-            <li>Run</li>
-            <li>Watch transcript and trace</li>
-            <li>See outcome</li>
+            <li>Speak or type</li>
+            <li>Model interprets</li>
+            <li>Workflow decides</li>
+            <li>Trace verifies</li>
           </ol>
         </section>
 
-        <section className="scenario-section scenario-section--compact" aria-labelledby="scenario-heading">
+        <section className="live-launch" aria-labelledby="live-heading">
           <div className="section-heading">
             <div>
               <span className="step-number">01</span>
-              <h2 id="scenario-heading">Choose a scenario</h2>
+              <h2 id="live-heading">Start a live call</h2>
             </div>
-            <span>Five synthetic evaluation calls</span>
+            <span className={`live-readiness ${snapshot.aiAvailable ? "live-readiness--ready" : ""}`}>
+              <i /> {snapshot.aiAvailable ? "Live models configured" : "API key required"}
+            </span>
           </div>
-          <div className="scenario-grid scenario-grid--compact">
-            {scenarios.map((scenario, index) => (
-              <button
-                aria-pressed={scenario.id === selectedScenarioId}
-                className={`scenario-card scenario-card--compact ${scenario.id === selectedScenarioId ? "scenario-card--selected" : ""}`}
-                key={scenario.id}
-                onClick={() => selectScenario(scenario)}
-                disabled={callActive}
-              >
-                <span className="scenario-index">0{index + 1}</span>
-                <span>
-                  <strong>{scenarioCardLabel(scenario.id)}</strong>
-                  <small>{scenario.accent}</small>
-                </span>
-                <i aria-hidden="true">{scenario.id === selectedScenarioId ? "Selected" : ""}</i>
-              </button>
-            ))}
-          </div>
-
-          <div className="scenario-runbar">
-            <div className="selected-scenario">
-              <span>Selected scenario</span>
-              <strong>{selectedScenario.title}</strong>
-              <p><b>Goal:</b> {scenarioGoalLabel(selectedScenario.id)}</p>
-              <small>{selectedScenario.persona} · {selectedScenario.confirmationCode} · Last name {selectedScenario.lastName}</small>
-            </div>
-            <div className="run-controls">
-              <div className="mode-switch mode-switch--compact" aria-label="Demo mode">
-                <button className={mode === "playback" ? "active" : ""} onClick={() => setMode("playback")} disabled={callActive}>
-                  <span>Scenario playback</span>
-                  <small>Recommended</small>
-                </button>
-                <button
-                  className={mode === "live" ? "active" : ""}
-                  onClick={() => setMode("live")}
-                  disabled={!snapshot.aiAvailable || callActive}
-                  title={snapshot.liveAvailabilityReason}
-                >
-                  <span>Live AI</span>
-                  <small>{snapshot.aiAvailable ? "Microphone" : "API key required"}</small>
-                </button>
+          <div className="live-launch-grid">
+            <div className="live-call-control">
+              <span className="live-kicker">Natural conversation · guarded execution</span>
+              <h2>Speak naturally. The model handles language; deterministic code controls actions.</h2>
+              <p>
+                Use the microphone or type any caller wording. Paraphrases, corrections, and unsupported requests
+                still pass through policy and the server-owned workflow before any mock tool can run.
+              </p>
+              <div className="sandbox-identities">
+                <span>Synthetic test identities</span>
+                <code>MPT-4821 · Lee</code>
+                <code>MPT-7315 · Patel</code>
               </div>
-              {!callActive ? (
-                <button className="primary-button run-demo-button" onClick={() => void startDemo()} disabled={!socketReady}>
-                  <span className="button-dot" /> {snapshot.outcome ? "Run another demo" : "Run demo"}
-                </button>
-              ) : (
-                <button className="end-button run-demo-button" onClick={endDemo}>End call</button>
-              )}
+              <div className="live-primary-actions">
+                {liveCallActive ? (
+                  <button className="end-button live-call-button" onClick={endDemo}>End live call</button>
+                ) : (
+                  <button
+                    className="primary-button live-call-button"
+                    onClick={() => void startLiveCall()}
+                    disabled={!socketReady || !snapshot.aiAvailable || evaluationActive}
+                    title={snapshot.liveAvailabilityReason}
+                  >
+                    <span className="button-dot" /> Start live call
+                  </button>
+                )}
+                <small>
+                  {snapshot.aiAvailable
+                    ? "Uses live STT, model interpretation, verified model narration, and TTS."
+                    : "Configure OPENAI_API_KEY to enable live interpretation, narration, speech, and synthesis."}
+                </small>
+              </div>
+            </div>
+            <div className="live-prompt-panel">
+              <div>
+                <span>Try saying—or rewrite—one of these</span>
+                <small>Examples only. Speak or type any wording.</small>
+              </div>
+              <div className="prompt-suggestions">
+                {livePromptSuggestions.map((prompt) => (
+                  <button type="button" key={prompt} onClick={() => setTypedTurn(prompt)}>{prompt}</button>
+                ))}
+              </div>
+              <form className="live-composer" onSubmit={submitTypedTurn}>
+                <label htmlFor="typed-turn">Typed caller language</label>
+                <div>
+                  <input
+                    id="typed-turn"
+                    value={typedTurn}
+                    onChange={(event) => setTypedTurn(event.target.value)}
+                    placeholder="Type any caller wording, then start a live call"
+                  />
+                  <button disabled={!liveCallActive || !typedTurn.trim()}>Send</button>
+                </div>
+              </form>
+              {micError && <p className="inline-error">Microphone: {micError}</p>}
             </div>
           </div>
         </section>
@@ -397,31 +445,35 @@ export function App() {
                 <span className="step-number">02</span>
                 <h2>Call demo</h2>
               </div>
-              <span className={`mode-badge mode-badge--${snapshot.mode}`}>{snapshot.mode === "live" ? "Live AI" : "Scenario playback"}</span>
+              <span className={`mode-badge mode-badge--${snapshot.mode}`}>
+                {snapshot.mode === "live" ? "Live AI" : "Replayed scenario"}
+              </span>
             </div>
 
             <div className={`call-status call-status--${snapshot.voiceMode}`}>
               <span className="call-status-dot" aria-hidden="true" />
               <div>
                 <small>{callActive ? labelForState(snapshot.voiceMode) : snapshot.outcome ? "Call complete" : "Ready to run"}</small>
-                <strong>{callActive || snapshot.outcome ? labelForState(snapshot.state) : scenarioCardLabel(selectedScenario.id)}</strong>
+                <strong>{callActive || snapshot.outcome ? labelForState(snapshot.state) : "Live exploration"}</strong>
               </div>
               <Waveform active={callActive && ["listening", "speaking", "processing"].includes(snapshot.voiceMode)} />
             </div>
 
             <div className="scenario-brief scenario-brief--focused">
-              <span>Caller context</span>
-              <strong>{selectedScenario.persona}</strong>
-              <p>{selectedScenario.goal}</p>
+              <span>{snapshot.mode === "live" ? "Live sandbox" : "Replayed caller"}</span>
+              <strong>{snapshot.mode === "live" ? "Freeform synthetic caller" : activeScenario.persona}</strong>
+              <p>
+                {snapshot.mode === "live"
+                  ? "Use either synthetic identity and speak or type naturally. Suggested prompts are optional."
+                  : activeScenario.goal}
+              </p>
               <dl>
-                <div><dt>Code</dt><dd>{selectedScenario.confirmationCode}</dd></div>
-                <div><dt>Last name</dt><dd>{selectedScenario.lastName}</dd></div>
+                <div><dt>Code</dt><dd>{snapshot.mode === "live" ? "MPT-4821" : activeScenario.confirmationCode}</dd></div>
+                <div><dt>Last name</dt><dd>{snapshot.mode === "live" ? "Lee" : activeScenario.lastName}</dd></div>
               </dl>
             </div>
 
-            {micError && <p className="inline-error">Microphone: {micError}</p>}
-
-            {callActive && (
+            {liveCallActive && (
               <div className="recovery-grid">
                 <form
                   onSubmit={(event) => {
@@ -463,12 +515,6 @@ export function App() {
               </div>
             )}
 
-            {callActive && (
-              <form className="typed-turn" onSubmit={submitTypedTurn}>
-                <label htmlFor="typed-turn">Typed recovery</label>
-                <div><input id="typed-turn" value={typedTurn} onChange={(event) => setTypedTurn(event.target.value)} placeholder="Type a caller turn when audio is unavailable" /><button disabled={!typedTurn.trim()}>Send</button></div>
-              </form>
-            )}
           </article>
 
           <aside className="operations-panel operations-panel--focused">
@@ -486,11 +532,11 @@ export function App() {
               </div>
             )}
 
-            {(snapshot.outcome || evalResult) && (
-              <section className={`outcome-card outcome-card--prominent ${snapshot.outcome === "changed" || evalResult?.passed ? "outcome-card--success" : ""}`}>
+            {(snapshot.outcome || currentEvalResult) && (
+              <section className={`outcome-card outcome-card--prominent ${snapshot.outcome === "changed" || currentEvalResult?.passed ? "outcome-card--success" : ""}`}>
                 <span><b className="step-number">04</b> Final call outcome</span>
                 <h3>{snapshot.outcome ? labelForState(snapshot.outcome) : "Evaluation complete"}</h3>
-                {evalResult && <p className="outcome-summary">Scenario evaluation {evalResult.passed ? "passed" : "needs review"}.</p>}
+                {currentEvalResult && <p className="outcome-summary">Replayed scenario evaluation {currentEvalResult.passed ? "passed" : "needs review"}.</p>}
               </section>
             )}
 
@@ -501,7 +547,7 @@ export function App() {
                 {snapshot.transcript.map((turn) => (
                   <div className={`turn turn--${turn.role}`} key={turn.id}>
                     <div className="turn-header">
-                      <span className="turn-speaker">{turn.role === "caller" ? selectedScenario.persona.split(" ")[0] : turn.role === "agent" ? "AI agent" : "System"}</span>
+                      <span className="turn-speaker">{turn.role === "caller" ? snapshot.mode === "live" ? "Caller" : activeScenario.persona.split(" ")[0] : turn.role === "agent" ? "AI agent" : "System"}</span>
                       {turn.narration && (
                         <span
                           className={`narration-provenance narration-provenance--${turn.narration.renderedBy}`}
@@ -584,10 +630,10 @@ export function App() {
                     ))}
                   </div>
                 </section>
-                {evalResult && (
+                {currentEvalResult && (
                   <section className="ops-section">
-                    <div className="subheading"><span>Evaluation checks</span><small>{evalResult.passed ? "Passed" : "Review needed"}</small></div>
-                    <div className="assertions">{evalResult.assertions.map((assertion) => <p key={assertion} className={assertion.startsWith("PASS") ? "pass" : "fail"}>{assertion}</p>)}</div>
+                    <div className="subheading"><span>Evaluation checks</span><small>{currentEvalResult.passed ? "Passed" : "Review needed"}</small></div>
+                    <div className="assertions">{currentEvalResult.assertions.map((assertion) => <p key={assertion} className={assertion.startsWith("PASS") ? "pass" : "fail"}>{assertion}</p>)}</div>
                   </section>
                 )}
                 {snapshot.history.length > 0 && (
@@ -601,6 +647,75 @@ export function App() {
               </details>
             )}
           </aside>
+        </section>
+
+        <section className="evaluation-suite" aria-labelledby="suite-heading">
+          <div className="suite-heading">
+            <div>
+              <span className="suite-label">Evaluation &amp; fallback</span>
+              <h2 id="suite-heading">Run verified scenarios</h2>
+              <p>
+                Replays five scripted calls through the same policy, workflow, mock tool, and verifier.
+                Fixture-generated language is replayed and re-verified—it is not live AI.
+              </p>
+            </div>
+            <div className="suite-actions">
+              <div className="suite-progress" aria-live="polite">
+                <strong>{suiteRunning ? `${completedEvaluations.length} of ${suiteTotal}` : `${passedEvaluations} of ${completedEvaluations.length || 5}`}</strong>
+                <span>{suiteRunning ? "scenarios complete" : completedEvaluations.length ? "passed" : "not run"}</span>
+              </div>
+              <button
+                className="secondary-button suite-run-all"
+                onClick={runScenarioSuite}
+                disabled={!socketReady || callActive || suiteRunning}
+              >
+                {suiteRunning ? "Running suite…" : "Run all five"}
+              </button>
+            </div>
+          </div>
+
+          <div className="scenario-score-grid">
+            {scenarios.map((scenario, index) => {
+              const result = evalResults[scenario.id];
+              const running = evaluationActive && snapshot.scenarioId === scenario.id && !snapshot.outcome;
+              return (
+                <article className={`scenario-score-card ${result?.passed ? "scenario-score-card--passed" : ""}`} key={scenario.id}>
+                  <div className="scenario-score-header">
+                    <span>0{index + 1}</span>
+                    <b className={result ? result.passed ? "pass" : "fail" : running ? "running" : "idle"}>
+                      {result ? result.passed ? "Passed" : "Failed" : running ? "Running" : "Not run"}
+                    </b>
+                  </div>
+                  <h3>{scenarioCardLabel(scenario.id)}</h3>
+                  <p>{scenarioGoalLabel(scenario.id)}</p>
+                  <small>Expected: {labelForState(scenario.expectedOutcome)}</small>
+                  {result && (
+                    <div className="scenario-score-result">
+                      <span>Actual: {result.actualOutcome ? labelForState(result.actualOutcome) : "none"}</span>
+                      <span>{result.toolCount} tools</span>
+                      <span>{result.narrationSources.fixture} replayed</span>
+                      <span>{result.narrationSources.template} fallbacks</span>
+                    </div>
+                  )}
+                  <button
+                    className="scenario-run-button"
+                    onClick={() => runScenario(scenario)}
+                    disabled={!socketReady || callActive || suiteRunning}
+                  >
+                    Run scenario
+                  </button>
+                  {result && (
+                    <details className="scenario-assertions">
+                      <summary>Scorecard details</summary>
+                      {result.assertions.map((assertion) => (
+                        <p key={assertion} className={assertion.startsWith("PASS") ? "pass" : "fail"}>{assertion}</p>
+                      ))}
+                    </details>
+                  )}
+                </article>
+              );
+            })}
+          </div>
         </section>
       </main>
 
