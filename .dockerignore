@@ -7,3 +7,5 @@ playwright-report
 .git
 .env
 *.log
+**/.env
+deploy/deploy.env

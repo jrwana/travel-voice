@@ -186,3 +186,5 @@ Deeper design rationale and testing procedures are indexed in [`docs/README.md`]
 ## Deployment note
 
 The included Dockerfile serves the built frontend and API from one process. Use HTTPS in deployment because browsers require a secure context for microphone access. Keep `OPENAI_API_KEY` server-side, set conservative platform spending limits, and replace in-memory quotas/session state with shared storage before scaling beyond a single demo instance.
+
+The live demo runs this way on a single AWS Lightsail instance, behind Caddy (automatic HTTPS) at an unlisted path. [`deploy/`](./deploy) has the compose file, a first-deploy script, and a pull-based auto-deploy: a systemd timer on the server redeploys when `main` moves and [CI](./.github/workflows/ci.yml) (type check, build, unit tests, replayed scenarios) passed on that commit. The API key lives only in the server's `deploy/.env`.
