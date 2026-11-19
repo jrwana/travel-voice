@@ -23,7 +23,7 @@ export class MicrophoneCapture {
       },
     });
     this.context = new AudioContext({ sampleRate: 48_000 });
-    await this.context.audioWorklet.addModule("/pcm-processor.js");
+    await this.context.audioWorklet.addModule(`${import.meta.env.BASE_URL}pcm-processor.js`);
     this.source = this.context.createMediaStreamSource(this.stream);
     this.worklet = new AudioWorkletNode(this.context, "pcm-capture");
     this.mute = this.context.createGain();

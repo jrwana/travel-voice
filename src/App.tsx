@@ -112,15 +112,17 @@ export function App() {
     const controller = new AbortController();
     let socket: WebSocket | undefined;
     const connect = async () => {
-      const response = await fetch("/api/bootstrap", { method: "POST", signal: controller.signal });
+      const response = await fetch("api/bootstrap", { method: "POST", signal: controller.signal });
       if (!response.ok) throw new Error("Could not initialize the demo session.");
       const data = (await response.json()) as BootstrapResponse;
       if (controller.signal.aborted) return;
       setBootstrap(data);
       setSnapshot(data.snapshot);
       snapshotRef.current = data.snapshot;
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      socket = new WebSocket(`${protocol}//${window.location.host}/ws?sessionId=${encodeURIComponent(data.sessionId)}`);
+      // Relative to the page so the app also works when served under a path prefix.
+      const wsUrl = new URL(`ws?sessionId=${encodeURIComponent(data.sessionId)}`, window.location.href);
+      wsUrl.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      socket = new WebSocket(wsUrl);
       socketRef.current = socket;
       socket.onopen = () => setSocketReady(true);
       socket.onclose = () => setSocketReady(false);
@@ -318,7 +320,7 @@ export function App() {
 
   const exportSession = () => {
     if (!bootstrap) return;
-    window.location.assign(`/api/sessions/${encodeURIComponent(bootstrap.sessionId)}/export`);
+    window.location.assign(`api/sessions/${encodeURIComponent(bootstrap.sessionId)}/export`);
   };
 
   if (!bootstrap || !snapshot || !selectedScenario || !activeScenario) {
