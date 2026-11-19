@@ -27,6 +27,7 @@ repo_url="$(git -C "$here/.." remote get-url origin)"
 
 ssh -o StrictHostKeyChecking=accept-new "ubuntu@$DEPLOY_HOST" bash -s <<REMOTE
 set -euo pipefail
+sudo install -d -o ubuntu -g ubuntu /srv/voice
 [[ -d /srv/voice/.git ]] || git clone -q '$repo_url' /srv/voice
 cd /srv/voice
 git fetch -q origin main
@@ -43,7 +44,7 @@ handle_path /$VOICE_PATH/* {
 	reverse_proxy voice:3001
 }
 CADDY
-docker exec deploy-caddy-1 caddy reload --config /etc/caddy/Caddyfile
+docker exec \$(docker ps -q --filter label=com.docker.compose.project=market-calibration --filter label=com.docker.compose.service=caddy) caddy reload --config /etc/caddy/Caddyfile
 sudo install -m 644 deploy/systemd/voice-deploy.service deploy/systemd/voice-deploy.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now voice-deploy.timer >/dev/null

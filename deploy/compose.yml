@@ -1,6 +1,9 @@
 # The voice agent, served by the market-calibration Caddy over the shared "edge" network.
 # deploy/.env lives only on the server (never committed) and holds OPENAI_API_KEY plus any
 # overrides from .env.example. Without a key, live calls stay disabled and replay still works.
+# Explicit project name: other apps on the server also keep compose files in deploy/.
+name: travel-voice
+
 services:
   voice:
     build:
