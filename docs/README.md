@@ -4,9 +4,9 @@ This folder preserves the reasoning that is easy to lose when only the implement
 
 ## Reading order
 
-2. [ARCHITECTURE.md](./ARCHITECTURE.md) - control flow, trust boundaries, model authority, narration verification, and failure behavior
-3. [DECISIONS.md](./DECISIONS.md) - why the major product and technology choices were made
-4. [TESTING.md](./TESTING.md) - automated commands, manual acceptance checks, local-vLLM recording, and trace inspection
+1. [ARCHITECTURE.md](./ARCHITECTURE.md) - control flow, trust boundaries, model authority, narration verification, and failure behavior
+2. [DECISIONS.md](./DECISIONS.md) - why the major product and technology choices were made
+3. [TESTING.md](./TESTING.md) - automated commands, manual acceptance checks, local-vLLM recording, and trace inspection
 
 ## Source-of-truth order
 
@@ -30,14 +30,14 @@ The most important implementation files are:
 
 The language layer and live-first demo strategy are split into reviewable commits:
 
-- `388311c` - fact-verified narration service
-- `8451de5` - all speech sites routed through narration intents
-- `faa01a2` - verified local-model playback fixtures
-- `5aa1791` - visible narration provenance and source-aware metrics
-- `5493246` - hardened live confirmation interpretation
-- `167cfe3` - context-aware numeric option selection
-- `e3a3736` - verified scenario suite runner and scorecards
-- `d9f269c` - guarded live paraphrase regression
-- `1e18695` - live-first interface and secondary replay suite
+- `74a903d` - fact-verified narration service
+- `94432e2` - all speech sites routed through narration intents
+- `38900ac` - verified local-model playback fixtures
+- `750177a` - visible narration provenance and source-aware metrics
+- `3929632` - hardened live confirmation interpretation
+- `1df7900` - context-aware numeric option selection
+- `30c3e8e` - verified scenario suite runner and scorecards
+- `58a011a` - guarded live paraphrase regression
+- `441b62b` - live-first interface and secondary replay suite
 
 At that baseline, `npm run check`, `npm run eval`, and `npm run test:e2e` all pass.
