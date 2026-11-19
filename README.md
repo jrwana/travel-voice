@@ -47,7 +47,7 @@ After hydration, extracted factual values are checked again against the supplied
 - Fastify HTTP/WebSocket server
 - XState guarded conversation machine
 - Zod boundary and tool validation
-- OpenAI Realtime transcription (`gpt-live-transcribe` by default)
+- OpenAI Realtime transcription (`gpt-4o-mini-transcribe` by default, server VAD turn detection)
 - OpenAI Responses API structured output (`gpt-5.4-mini` by default)
 - OpenAI-compatible Responses API narration renderer (`gpt-5.4-mini` by default)
 - OpenAI text-to-speech (`gpt-4o-mini-tts`, `coral` by default)

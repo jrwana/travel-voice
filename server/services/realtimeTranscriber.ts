@@ -19,9 +19,12 @@ export class RealtimeTranscriber {
 
   async connect(): Promise<void> {
     if (this.socket?.readyState === WebSocket.OPEN) return;
-    const model = process.env.OPENAI_TRANSCRIBE_MODEL ?? "gpt-live-transcribe";
+    // A transcription-only session: the model goes in audio.input.transcription, not the URL
+    // (the URL model is the realtime conversation model). Server VAD ends each caller turn and
+    // emits the speech_started / completed events handled below.
+    const model = process.env.OPENAI_TRANSCRIBE_MODEL ?? "gpt-4o-mini-transcribe";
     await new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(`wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`, {
+      const socket = new WebSocket("wss://api.openai.com/v1/realtime?intent=transcription", {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           "OpenAI-Safety-Identifier": this.safetyIdentifier,
@@ -39,10 +42,10 @@ export class RealtimeTranscriber {
                   format: { type: "audio/pcm", rate: 24_000 },
                   transcription: {
                     model,
-                    prompt: "Fictional premium travel support call. Confirmation codes begin MPT, followed by four digits.",
-                    keywords: ["Meridian and Pine", "MPT-4821", "MPT-7315", "The Lume", "Aoki House"],
-                    languages: ["en"],
-                    delay: "low",
+                    prompt:
+                      "Fictional premium travel support call for Meridian and Pine. Confirmation codes begin MPT, " +
+                      "followed by four digits (MPT-4821, MPT-7315). Hotels: The Lume, Aoki House.",
+                    language: "en",
                   },
                   turn_detection: {
                     type: "server_vad",
